@@ -42,7 +42,7 @@ from utils.box_util import (
 
 
 MEAN_COLOR_RGB = np.array([0.5, 0.5, 0.5])  # sunrgbd color is in 0~1
-DATA_PATH = "/home/jzhang72/PycharmProjects/3detr/datasets/SG/sg_pc_bbox" ## Replace with path to dataset
+DATA_PATH = "/home/jzhang72/PycharmProjects/3detr_Shape_Grammar/datasets/SG/sg_pc_bbox" ## Replace with path to dataset
 
 
 def sg_flip_axis_to_camera_tensor(pc):
