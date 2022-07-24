@@ -62,7 +62,7 @@ class BoxProcessor(object):
         return cls_prob[..., :-1], objectness_prob
 
     def box_parametrization_to_corners(
-        self, box_center_unnorm, box_size_unnorm, box_angle
+            self, box_center_unnorm, box_size_unnorm, box_angle
     ):
         return self.dataset_config.box_parametrization_to_corners(
             box_center_unnorm, box_size_unnorm, box_angle
@@ -87,18 +87,19 @@ class Model3DETR(nn.Module):
     """
 
     def __init__(
-        self,
-        pre_encoder,
-        encoder,
-        decoder,
-        dataset_config,
-        encoder_dim=256,
-        decoder_dim=256,
-        position_embedding="fourier",
-        mlp_dropout=0.3,
-        num_queries=256,
+            self,
+            pre_encoder,
+            encoder,
+            decoder,
+            dataset_config,
+            encoder_dim=256,
+            decoder_dim=256,
+            position_embedding="fourier",
+            mlp_dropout=0.3,
+            num_queries=256,
     ):
         super().__init__()
+        self.mlp_heads = None
         self.pre_encoder = pre_encoder
         self.encoder = encoder
         if hasattr(self.encoder, "masking_radius"):
@@ -154,12 +155,16 @@ class Model3DETR(nn.Module):
         angle_cls_head = mlp_func(output_dim=dataset_config.num_angle_bin)
         angle_reg_head = mlp_func(output_dim=dataset_config.num_angle_bin)
 
+        # parameters of shape grammar
+        sg_para_head = mlp_func(output_dim=dataset_config.sg_para_number)
+
         mlp_heads = [
             ("sem_cls_head", semcls_head),
             ("center_head", center_head),
             ("size_head", size_head),
             ("angle_cls_head", angle_cls_head),
             ("angle_residual_head", angle_reg_head),
+            ("sg_para_head", sg_para_head)
         ]
         self.mlp_heads = nn.ModuleDict(mlp_heads)
 
@@ -229,13 +234,16 @@ class Model3DETR(nn.Module):
         # mlp head outputs are (num_layers x batch) x noutput x nqueries, so transpose last two dims
         cls_logits = self.mlp_heads["sem_cls_head"](box_features).transpose(1, 2)
         center_offset = (
-            self.mlp_heads["center_head"](box_features).sigmoid().transpose(1, 2) - 0.5
+                self.mlp_heads["center_head"](box_features).sigmoid().transpose(1, 2) - 0.5
         )
         size_normalized = (
             self.mlp_heads["size_head"](box_features).sigmoid().transpose(1, 2)
         )
         angle_logits = self.mlp_heads["angle_cls_head"](box_features).transpose(1, 2)
         angle_residual_normalized = self.mlp_heads["angle_residual_head"](
+            box_features
+        ).transpose(1, 2)
+        sg_para = self.mlp_heads["sg_para_head"](
             box_features
         ).transpose(1, 2)
 
@@ -248,8 +256,9 @@ class Model3DETR(nn.Module):
             num_layers, batch, num_queries, -1
         )
         angle_residual = angle_residual_normalized * (
-            np.pi / angle_residual_normalized.shape[-1]
+                np.pi / angle_residual_normalized.shape[-1]
         )
+        sg_para = sg_para.reshape(num_layers, batch, num_queries, -1)
 
         outputs = []
         for l in range(num_layers):
@@ -291,6 +300,7 @@ class Model3DETR(nn.Module):
                 "objectness_prob": objectness_prob,
                 "sem_cls_prob": semcls_prob,
                 "box_corners": box_corners,
+                "sg_para": sg_para[l]
             }
             outputs.append(box_prediction)
 
@@ -378,7 +388,7 @@ def build_encoder(args):
             mlp=[args.enc_dim, 256, 256, args.enc_dim],
             normalize_xyz=True,
         )
-        
+
         masking_radius = [math.pow(x, 2) for x in [0.4, 0.8, 1.2]]
         encoder = MaskedTransformerEncoder(
             encoder_layer=encoder_layer,

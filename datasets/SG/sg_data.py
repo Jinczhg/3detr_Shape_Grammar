@@ -1,5 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
-# 
+#
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -77,6 +77,7 @@ class SGObject3d(object):
         self.roll = data[7]
         self.pitch = data[8]
         self.yaw = data[9]
+        self.sg_para = np.array([data[10], data[11], data[12], data[13], data[14], data[15], data[16]])
 
 
 def data_viz(data_dir, dump_dir=os.path.join(BASE_DIR, 'data_viz_dump')):
@@ -141,27 +142,27 @@ def data_viz(data_dir, dump_dir=os.path.join(BASE_DIR, 'data_viz_dump')):
 
 def extract_sg_data(idx_filename, split, output_folder, num_point=20000,
                     type_whitelist=None, skip_empty_scene=True):
-    """ Extract scene point clouds and 
-    bounding boxes (centroids, box sizes, heading angles, semantic classes).
-    Dumped point clouds and boxes are in upright depth coord.
+    """ Extract scene point clouds and
+   bounding boxes (centroids, box sizes, heading angles, semantic classes).
+   Dumped point clouds and boxes are in upright depth coord.
 
-    Args:
-        type_whitelist:
-        output_folder:
-        num_point:
-        idx_filename: a TXT file where each line is an int number (index)
-        split: training or testing
-        skip_empty_scene: if True, skip scenes that contain no object (no objet in whitelist)
+   Args:
+       type_whitelist:
+       output_folder:
+       num_point:
+       idx_filename: a TXT file where each line is an int number (index)
+       split: training or testing
+       skip_empty_scene: if True, skip scenes that contain no object (no objet in whitelist)
 
-    Dumps:
-        <id>_pc.npz of (N,6) where N is for number of subsampled points and 6 is
-            for XYZ and RGB (in 0~1) in upright depth coord
-        <id>_bbox.npy of (K,8) where K is the number of objects, 8 is for
-            centroids (cx,cy,cz), dimension (l,w,h), heanding_angle and semantic_class
-        <id>_votes.npz of (N,10) with 0/1 indicating whether the point belongs to an object,
-            then three sets of GT votes for up to three objects. If the point is only in one
-            object's OBB, then the three GT votes are the same.
-    """
+   Dumps:
+       <id>_pc.npz of (N,6) where N is for number of subsampled points and 6 is
+           for XYZ and RGB (in 0~1) in upright depth coord
+       <id>_bbox.npy of (K,8) where K is the number of objects, 8 is for
+           centroids (cx,cy,cz), dimension (l,w,h), heanding_angle and semantic_class
+       <id>_votes.npz of (N,10) with 0/1 indicating whether the point belongs to an object,
+           then three sets of GT votes for up to three objects. If the point is only in one
+           object's OBB, then the three GT votes are the same.
+   """
     if type_whitelist is None:
         type_whitelist = CLASS_WHITELIST
     dataset = sg_object("/home/jzhang72/Downloads/sharp-kt/dataset", split)
@@ -183,18 +184,19 @@ def extract_sg_data(idx_filename, split, output_folder, num_point=20000,
         for obj in objects:
             if id2class[int(obj.class_id)] not in type_whitelist:
                 continue
-            obb = np.zeros(10)
+            obb = np.zeros(17)
             obb[0:3] = obj.centroid
             # Note that compared with that in data_viz, we do not time 2 to l,w.h
             # neither do we flip the heading angle
             obb[3:6] = np.array([obj.l, obj.w, obj.h])
             obb[6:9] = np.array([obj.roll, obj.pitch, obj.yaw])
-            obb[9] = obj.class_id
+            obb[9:16] = obj.sg_para
+            obb[16] = obj.class_id
             object_list.append(obb)
         if len(object_list) == 0:
-            obbs = np.zeros((0, 10))
+            obbs = np.zeros((0, 17))
         else:
-            obbs = np.vstack(object_list)  # (K,10)
+            obbs = np.vstack(object_list)  # (K, id+center+size+rotation+sg)
 
         pc_upright = dataset.get_pc(data_idx)
         pc_upright_subsampled = pc_util.random_sampling(pc_upright, num_point)

@@ -12,11 +12,11 @@ from scipy.optimize import linear_sum_assignment
 class Matcher(nn.Module):
     def __init__(self, cost_class, cost_objectness, cost_giou, cost_center):
         """
-        Parameters:
-            cost_class:
-        Returns:
+       Parameters:
+           cost_class:
+       Returns:
 
-        """
+       """
         super().__init__()
         self.cost_class = cost_class
         self.cost_objectness = cost_objectness
@@ -50,10 +50,10 @@ class Matcher(nn.Module):
         giou_mat = -outputs["gious"].detach()
 
         final_cost = (
-            self.cost_class * class_mat
-            + self.cost_objectness * objectness_mat
-            + self.cost_center * center_mat
-            + self.cost_giou * giou_mat
+                self.cost_class * class_mat
+                + self.cost_objectness * objectness_mat
+                + self.cost_center * center_mat
+                + self.cost_giou * giou_mat
         )
 
         final_cost = final_cost.detach().cpu().numpy()
@@ -104,6 +104,7 @@ class SetCriterion(nn.Module):
             "loss_center": self.loss_center,
             "loss_size": self.loss_size,
             "loss_giou": self.loss_giou,
+            "loss_sg_para": self.loss_sg_para,
             # this isn't used during training and is logged for debugging.
             # thus, this loss does not have a loss_weight associated with it.
             "loss_cardinality": self.loss_cardinality,
@@ -146,7 +147,7 @@ class SetCriterion(nn.Module):
             targets["gt_box_sem_cls_label"], 1, assignments["per_prop_gt_inds"]
         )
         gt_box_label[assignments["proposal_matched_mask"].int() == 0] = (
-            pred_logits.shape[-1] - 1
+                pred_logits.shape[-1] - 1
         )
         loss = F.cross_entropy(
             pred_logits.transpose(2, 1),
@@ -165,7 +166,7 @@ class SetCriterion(nn.Module):
             gt_angle_label = targets["gt_angle_class_label"]
             gt_angle_residual = targets["gt_angle_residual_label"]
             gt_angle_residual_normalized = gt_angle_residual / (
-                np.pi / self.dataset_config.num_angle_bin
+                    np.pi / self.dataset_config.num_angle_bin
             )
 
             # # Non vectorized version
@@ -197,7 +198,7 @@ class SetCriterion(nn.Module):
                 angle_logits.transpose(2, 1), gt_angle_label, reduction="none"
             )
             angle_cls_loss = (
-                angle_cls_loss * assignments["proposal_matched_mask"]
+                    angle_cls_loss * assignments["proposal_matched_mask"]
             ).sum()
 
             gt_angle_residual_normalized = torch.gather(
@@ -215,7 +216,7 @@ class SetCriterion(nn.Module):
                 angle_residual_for_gt_class - gt_angle_residual_normalized, delta=1.0
             )
             angle_reg_loss = (
-                angle_reg_loss * assignments["proposal_matched_mask"]
+                    angle_reg_loss * assignments["proposal_matched_mask"]
             ).sum()
 
             angle_cls_loss /= targets["num_boxes"]
@@ -316,6 +317,48 @@ class SetCriterion(nn.Module):
             size_loss = torch.zeros(1, device=pred_box_sizes.device).squeeze()
         return {"loss_size": size_loss}
 
+    def loss_sg_para(self, outputs, targets, assignments):
+        gt_sg_para = targets["sg_para"]
+        pred_sg_para = outputs["sg_para"]
+
+        if targets["num_boxes_replica"] > 0:
+
+            # # Non vectorized version
+            # p_sizes = []
+            # t_sizes = []
+            # assign = assignments["assignments"]
+            # for b in range(pred_box_sizes.shape[0]):
+            #     if len(assign[b]) > 0:
+            #         p_sizes.append(pred_box_sizes[b, assign[b][0]])
+            #         t_sizes.append(gt_box_sizes[b, assign[b][1]])
+            # p_sizes = torch.cat(p_sizes)
+            # t_sizes = torch.cat(t_sizes)
+            # size_loss = F.l1_loss(p_sizes, t_sizes, reduction="sum")
+
+            # construct gt_box_sizes as [batch x nprop x 3] matrix by using proposal to gt matching
+            gt_sg_para = torch.stack(
+                [
+                    torch.gather(
+                        gt_sg_para[:, :, x], 1, assignments["per_prop_gt_inds"]
+                    )
+                    for x in range(gt_sg_para.shape[-1])
+                ],
+                dim=-1,
+            )
+            sg_loss = F.l1_loss(pred_sg_para, gt_sg_para, reduction="none").sum(
+                dim=-1
+            )
+
+            # zero-out non-matched proposals
+            sg_loss *= assignments["proposal_matched_mask"]
+            sg_loss = sg_loss.sum()
+
+            sg_loss /= targets["num_boxes"]
+        else:
+            sg_loss = torch.zeros(1, device=pred_sg_para.device).squeeze()
+
+        return {"loss_sg_para": sg_loss}
+
     def single_output_forward(self, outputs, targets):
         gious = generalized_box3d_iou(
             outputs["box_corners"],
@@ -337,8 +380,8 @@ class SetCriterion(nn.Module):
         for k in self.loss_functions:
             loss_wt_key = k + "_weight"
             if (
-                loss_wt_key in self.loss_weight_dict
-                and self.loss_weight_dict[loss_wt_key] > 0
+                    loss_wt_key in self.loss_weight_dict
+                    and self.loss_weight_dict[loss_wt_key] > 0
             ) or loss_wt_key not in self.loss_weight_dict:
                 # only compute losses with loss_wt > 0
                 # certain losses like cardinality are only logged and have no loss weight
@@ -391,6 +434,7 @@ def build_criterion(args, dataset_config):
         "loss_angle_reg_weight": args.loss_angle_reg_weight,
         "loss_center_weight": args.loss_center_weight,
         "loss_size_weight": args.loss_size_weight,
+        "loss_sg_para_weight": args.loss_sg_para_weight,
     }
     criterion = SetCriterion(matcher, dataset_config, loss_weight_dict)
     return criterion

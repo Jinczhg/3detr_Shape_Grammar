@@ -99,6 +99,7 @@ def make_args_parser():
     parser.add_argument("--loss_angle_reg_weight", default=0.5, type=float)
     parser.add_argument("--loss_center_weight", default=5.0, type=float)
     parser.add_argument("--loss_size_weight", default=1.0, type=float)
+    parser.add_argument("--loss_sg_para_weight", default=3.0, type=float)
 
     ##### Dataset #####
     parser.add_argument(
@@ -109,14 +110,14 @@ def make_args_parser():
         type=str,
         default=None,
         help="Root directory containing the dataset files. \
-              If None, default values from scannet.py/sunrgbd.py are used",
+             If None, default values from scannet.py/sunrgbd.py are used",
     )
     parser.add_argument(
         "--meta_data_dir",
         type=str,
         default=None,
         help="Root directory containing the metadata files. \
-              If None, default values from scannet.py/sunrgbd.py are used",
+             If None, default values from scannet.py/sunrgbd.py are used",
     )
     parser.add_argument("--dataset_num_workers", default=4, type=int)
     parser.add_argument("--batchsize_per_gpu", default=8, type=int)
@@ -145,20 +146,20 @@ def make_args_parser():
 
 
 def do_train(
-    args,
-    model,
-    model_no_ddp,
-    optimizer,
-    criterion,
-    dataset_config,
-    dataloaders,
-    best_val_metrics,
+        args,
+        model,
+        model_no_ddp,
+        optimizer,
+        criterion,
+        dataset_config,
+        dataloaders,
+        best_val_metrics,
 ):
     """
-    Main training loop.
-    This trains the model for `args.max_epoch` epochs and tests the model after every `args.eval_every_epoch`.
-    We always evaluate the final checkpoint and report both the final AP and best AP on the val set.
-    """
+   Main training loop.
+   This trains the model for `args.max_epoch` epochs and tests the model after every `args.eval_every_epoch`.
+   We always evaluate the final checkpoint and report both the final AP and best AP on the val set.
+   """
 
     num_iters_per_epoch = len(dataloaders["train"])
     num_iters_per_eval_epoch = len(dataloaders["test"])
@@ -213,9 +214,9 @@ def do_train(
             logger.log_scalars(metrics_dict, curr_iter, prefix="Train/")
 
         if (
-            epoch > 0
-            and args.save_separate_checkpoint_every_epoch > 0
-            and epoch % args.save_separate_checkpoint_every_epoch == 0
+                epoch > 0
+                and args.save_separate_checkpoint_every_epoch > 0
+                and epoch % args.save_separate_checkpoint_every_epoch == 0
         ):
             # separate checkpoints are stored as checkpoint_{epoch}.pth
             save_checkpoint(
@@ -249,7 +250,7 @@ def do_train(
                 logger.log_scalars(metrics_dict, curr_iter, prefix="Test/")
 
             if is_primary() and (
-                len(best_val_metrics) == 0 or best_val_metrics[0.25]["mAP"] < ap25
+                    len(best_val_metrics) == 0 or best_val_metrics[0.25]["mAP"] < ap25
             ):
                 best_val_metrics = metrics
                 filename = "checkpoint_best.pth"
@@ -395,7 +396,7 @@ def main(local_rank, args):
         test_model(args, model, model_no_ddp, criterion, dataset_config, dataloaders)
     else:
         assert (
-            args.checkpoint_dir is not None
+                args.checkpoint_dir is not None
         ), f"Please specify a checkpoint dir using --checkpoint_dir"
         if is_primary() and not os.path.isdir(args.checkpoint_dir):
             os.makedirs(args.checkpoint_dir, exist_ok=True)

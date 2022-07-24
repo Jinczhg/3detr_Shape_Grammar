@@ -1,7 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 
 
-""" 
+"""
 Modified from https://github.com/facebookresearch/votenet
 Dataset for 3D object detection on SUN RGB-D (with support of vote supervision).
 
@@ -40,15 +40,14 @@ from utils.box_util import (
     get_3d_box_batch_np,
 )
 
-
 MEAN_COLOR_RGB = np.array([0.5, 0.5, 0.5])  # sunrgbd color is in 0~1
-DATA_PATH = "/home/jzhang72/PycharmProjects/3detr_Shape_Grammar/datasets/SG/sg_pc_bbox" ## Replace with path to dataset
+DATA_PATH = "/home/jzhang72/PycharmProjects/3detr_Shape_Grammar/datasets/SG/sg_pc_bbox"  ## Replace with path to dataset
 
 
 def sg_flip_axis_to_camera_tensor(pc):
     """Flip X-left,Y-up,Z-forward to X-right,Y-down,Z-forward
-    Input and output are both (N,3) array
-    """
+   Input and output are both (N,3) array
+   """
     pc2 = torch.clone(pc)
     pc2[..., 0] *= -1
     pc2[..., 1] *= -1
@@ -57,8 +56,8 @@ def sg_flip_axis_to_camera_tensor(pc):
 
 def sg_flip_axis_to_camera_np(pc):
     """Flip X-left,Y-up,Z-forward to X-right,Y-down,Z-forward
-    Input and output are both (N,3) array
-    """
+   Input and output are both (N,3) array
+   """
     pc2 = pc.copy()
     pc2[..., 0] *= -1
     pc2[..., 1] *= -1
@@ -67,26 +66,27 @@ def sg_flip_axis_to_camera_np(pc):
 
 class SGDatasetConfig(object):
     def __init__(self):
-        self.num_semcls = 6
+        self.num_semcls = 3
         self.num_angle_bin = 12
         self.max_num_obj = 64
+        self.sg_para_number = 7  # number of shape grammar parameters to be estimated
         self.type2class = {
-            'table': 0, 'chair': 1, 'bookshelf': 2, 'bed': 3, 'sofa': 4, 'dresser': 5,
+            'table': 0, 'chair': 1, 'bookshelf': 2  # , 'bed': 3, 'sofa': 4, 'dresser': 5,
         }
         self.class2type = {self.type2class[t]: t for t in self.type2class}
         self.type2onehotclass = {
-            'table': 0, 'chair': 1, 'bookshelf': 2, 'bed': 3, 'sofa': 4, 'dresser': 5,
+            'table': 0, 'chair': 1, 'bookshelf': 2  # , 'bed': 3, 'sofa': 4, 'dresser': 5,
         }
 
     def angle2class(self, angle):
         """Convert continuous angle to discrete class
-        [optinal] also small regression number from
-        class center angle to current angle.
+       [optinal] also small regression number from
+       class center angle to current angle.
 
-        angle is from 0-2pi (or -pi~pi), class center at 0, 1*(2pi/N), 2*(2pi/N) ...  (N-1)*(2pi/N)
-        returns class [0,1,...,N-1] and a residual number such that
-            class*(2pi/N) + number = angle
-        """
+       angle is from 0-2pi (or -pi~pi), class center at 0, 1*(2pi/N), 2*(2pi/N) ...  (N-1)*(2pi/N)
+       returns class [0,1,...,N-1] and a residual number such that
+           class*(2pi/N) + number = angle
+       """
         num_class = self.num_angle_bin
         angle = angle % (2 * np.pi)
         assert angle >= 0 and angle <= 2 * np.pi
@@ -94,7 +94,7 @@ class SGDatasetConfig(object):
         shifted_angle = (angle + angle_per_class / 2) % (2 * np.pi)
         class_id = int(shifted_angle / angle_per_class)
         residual_angle = shifted_angle - (
-            class_id * angle_per_class + angle_per_class / 2
+                class_id * angle_per_class + angle_per_class / 2
         )
         return class_id, residual_angle
 
@@ -147,16 +147,16 @@ class SGDatasetConfig(object):
 
 class SGDetectionDataset(Dataset):
     def __init__(
-        self,
-        dataset_config,
-        split_set="train",
-        root_dir=None,
-        num_points=20000,
-        use_color=False,
-        use_height=False,
-        augment=False,
-        use_random_cuboid=True,
-        random_cuboid_min_points=30000,
+            self,
+            dataset_config,
+            split_set="train",
+            root_dir=None,
+            num_points=20000,
+            use_color=False,
+            use_height=False,
+            augment=False,
+            use_random_cuboid=True,
+            random_cuboid_min_points=30000,
     ):
         assert num_points <= 50000
         assert split_set in ["train", "val", "trainval"]
@@ -244,16 +244,16 @@ class SGDetectionDataset(Dataset):
 
             point_cloud[:, 0:3] = np.dot(point_cloud[:, 0:3], np.transpose(rot_mat))
             bboxes[:, 0:3] = np.dot(bboxes[:, 0:3], np.transpose(rot_mat))
-            bboxes[:, 7] += rot_angle   # pitch
+            bboxes[:, 7] += rot_angle  # pitch
 
             # Augment RGB color
             if self.use_color:
                 rgb_color = point_cloud[:, 3:6] + MEAN_COLOR_RGB
                 rgb_color *= (
-                    1 + 0.4 * np.random.random(3) - 0.2
+                        1 + 0.4 * np.random.random(3) - 0.2
                 )  # brightness change for each channel
                 rgb_color += (
-                    0.1 * np.random.random(3) - 0.05
+                        0.1 * np.random.random(3) - 0.05
                 )  # color shift for each channel
                 rgb_color += np.expand_dims(
                     (0.05 * np.random.random(point_cloud.shape[0]) - 0.025), -1
@@ -266,14 +266,15 @@ class SGDetectionDataset(Dataset):
                 point_cloud[:, 3:6] = rgb_color - MEAN_COLOR_RGB
 
             # Augment point cloud scale: 0.85x-1.15x
-            scale_ratio = np.random.random() * 0.3 + 0.85
-            scale_ratio = np.expand_dims(np.tile(scale_ratio, 3), 0)
-            point_cloud[:, 0:3] *= scale_ratio
-            bboxes[:, 0:3] *= scale_ratio
-            bboxes[:, 3:6] *= scale_ratio
+            # Not scaling the point cloud because the changes that scaling brings to the shape grammar parameters is indeterminate
+            # scale_ratio = np.random.random() * 0.3 + 0.85
+            # scale_ratio = np.expand_dims(np.tile(scale_ratio, 3), 0)
+            # point_cloud[:, 0:3] *= scale_ratio
+            # bboxes[:, 0:3] *= scale_ratio
+            # bboxes[:, 3:6] *= scale_ratio
 
-            if self.use_height:
-                point_cloud[:, -1] *= scale_ratio[0, 0]
+            # if self.use_height:
+            #     point_cloud[:, -1] *= scale_ratio[0, 0]
 
             if self.use_random_cuboid:
                 point_cloud, bboxes, _ = self.random_cuboid_augmentor(
@@ -283,21 +284,22 @@ class SGDetectionDataset(Dataset):
         # ------------------------------- LABELS ------------------------------
         angle_classes = np.zeros((self.max_num_obj,), dtype=np.float32)
         angle_residuals = np.zeros((self.max_num_obj,), dtype=np.float32)
-        raw_angles = np.zeros((self.max_num_obj,), dtype=np.float32)
         raw_sizes = np.zeros((self.max_num_obj, 3), dtype=np.float32)
         label_mask = np.zeros((self.max_num_obj))
-        label_mask[0 : bboxes.shape[0]] = 1
+        label_mask[0: bboxes.shape[0]] = 1
         # max_bboxes = np.zeros((self.max_num_obj, 10))
         # max_bboxes[0 : bboxes.shape[0], :] = bboxes
+        sg_paras = np.zeros((self.max_num_obj, 7), dtype=np.float32)        # this number is SGDatasetConfig.sg_para_number
 
         target_bboxes_mask = label_mask
         target_bboxes = np.zeros((self.max_num_obj, 6))
 
         for i in range(bboxes.shape[0]):
             bbox = bboxes[i]
-            semantic_class = bbox[9]
-            raw_angles[i] = bbox[7] % 2 * np.pi     # pitch
+            semantic_class = bbox[16]
             box3d_size = bbox[3:6] * 2
+            sg_para = bbox[9:16]
+            sg_paras[i, :] = sg_para
             raw_sizes[i, :] = box3d_size
             angle_class, angle_residual = self.dataset_config.angle2class(bbox[7])
             angle_classes[i] = angle_class
@@ -323,6 +325,7 @@ class SGDetectionDataset(Dataset):
                 ]
             )
             target_bboxes[i, :] = target_bbox
+
         point_cloud, choices = pc_util.random_sampling(
             point_cloud, self.num_points, return_choices=True
         )
@@ -331,12 +334,26 @@ class SGDetectionDataset(Dataset):
         point_cloud_dims_max = point_cloud.max(axis=0)
 
         mult_factor = point_cloud_dims_max - point_cloud_dims_min
-        assert(mult_factor.all() != 0), "scan path is " + str(scan_path) + "; self_aug = " + str(self.augment) + "; max = " + str(point_cloud_dims_max) + "; min = " + str(point_cloud_dims_min) + "; pc[12651] = " + str(point_cloud[12651])
+        assert (mult_factor.all() != 0), "scan path is " + str(scan_path) + "; self_aug = " + str(self.augment) + "; max = " + str(
+            point_cloud_dims_max) + "; min = " + str(point_cloud_dims_min) + "; pc[12651] = " + str(point_cloud[12651])
         box_sizes_normalized = scale_points(
             raw_sizes.astype(np.float32)[None, ...],
             mult_factor=1.0 / mult_factor[None, ...],
         )
         box_sizes_normalized = box_sizes_normalized.squeeze(0)
+
+        def scale_points_sg(pred_sg, factor_sg):
+            if pred_sg.ndim == 7:                       # this number is SGDatasetConfig.sg_para_number
+                factor_sg = factor_sg[:, None]
+            scaled_sg = pred_sg * factor_sg[:, None, :]
+            return scaled_sg
+
+        mult_factor_sg = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+        sg_paras_normalized = scale_points_sg(
+            sg_paras.astype(np.float32)[None, ...],
+            factor_sg=1.0 / mult_factor_sg[None, ...],
+        )
+        sg_paras_normalized = sg_paras_normalized.squeeze(0)
 
         box_centers = target_bboxes.astype(np.float32)[:, 0:3]
         box_centers_normalized = shift_scale_points(
@@ -368,9 +385,7 @@ class SGDetectionDataset(Dataset):
         ret_dict["point_clouds"] = point_cloud.astype(np.float32)
         ret_dict["gt_box_corners"] = box_corners.astype(np.float32)
         ret_dict["gt_box_centers"] = box_centers.astype(np.float32)
-        ret_dict["gt_box_centers_normalized"] = box_centers_normalized.astype(
-            np.float32
-        )
+        ret_dict["gt_box_centers_normalized"] = box_centers_normalized.astype(np.float32)
         target_bboxes_semcls = np.zeros((self.max_num_obj))
         target_bboxes_semcls[0: bboxes.shape[0]] = bboxes[:, -1]  # from 0 to 9
         ret_dict["gt_box_sem_cls_label"] = target_bboxes_semcls.astype(np.int64)
@@ -383,4 +398,5 @@ class SGDetectionDataset(Dataset):
         ret_dict["gt_angle_residual_label"] = angle_residuals
         ret_dict["point_cloud_dims_min"] = point_cloud_dims_min.astype(np.float32)
         ret_dict["point_cloud_dims_max"] = point_cloud_dims_max.astype(np.float32)
+        ret_dict["sg_para"] = sg_paras_normalized.astype(np.float32)
         return ret_dict
