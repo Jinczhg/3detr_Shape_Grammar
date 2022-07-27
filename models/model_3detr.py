@@ -62,10 +62,10 @@ class BoxProcessor(object):
         return cls_prob[..., :-1], objectness_prob
 
     def box_parametrization_to_corners(
-            self, box_center_unnorm, box_size_unnorm, box_angle
+            self, box_center_unnorm, box_size_unnorm, box_angle_roll, box_angle_pitch, box_angle_yaw
     ):
         return self.dataset_config.box_parametrization_to_corners(
-            box_center_unnorm, box_size_unnorm, box_angle
+            box_center_unnorm, box_size_unnorm, box_angle_roll, box_angle_pitch, box_angle_yaw
         )
 
 
@@ -152,8 +152,12 @@ class Model3DETR(nn.Module):
         # geometry of the box
         center_head = mlp_func(output_dim=3)
         size_head = mlp_func(output_dim=3)
-        angle_cls_head = mlp_func(output_dim=dataset_config.num_angle_bin)
-        angle_reg_head = mlp_func(output_dim=dataset_config.num_angle_bin)
+        roll_angle_cls_head = mlp_func(output_dim=dataset_config.num_angle_bin)
+        roll_angle_reg_head = mlp_func(output_dim=dataset_config.num_angle_bin)
+        pitch_angle_cls_head = mlp_func(output_dim=dataset_config.num_angle_bin)
+        pitch_angle_reg_head = mlp_func(output_dim=dataset_config.num_angle_bin)
+        yaw_angle_cls_head = mlp_func(output_dim=dataset_config.num_angle_bin)
+        yaw_angle_reg_head = mlp_func(output_dim=dataset_config.num_angle_bin)
 
         # parameters of shape grammar
         sg_para_head = mlp_func(output_dim=dataset_config.sg_para_number)
@@ -162,8 +166,12 @@ class Model3DETR(nn.Module):
             ("sem_cls_head", semcls_head),
             ("center_head", center_head),
             ("size_head", size_head),
-            ("angle_cls_head", angle_cls_head),
-            ("angle_residual_head", angle_reg_head),
+            ("roll_angle_cls_head", roll_angle_cls_head),
+            ("roll_angle_residual_head", roll_angle_reg_head),
+            ("pitch_angle_cls_head", pitch_angle_cls_head),
+            ("pitch_angle_residual_head", pitch_angle_reg_head),
+            ("yaw_angle_cls_head", yaw_angle_cls_head),
+            ("yaw_angle_residual_head", yaw_angle_reg_head),
             ("sg_para_head", sg_para_head)
         ]
         self.mlp_heads = nn.ModuleDict(mlp_heads)
@@ -239,8 +247,16 @@ class Model3DETR(nn.Module):
         size_normalized = (
             self.mlp_heads["size_head"](box_features).sigmoid().transpose(1, 2)
         )
-        angle_logits = self.mlp_heads["angle_cls_head"](box_features).transpose(1, 2)
-        angle_residual_normalized = self.mlp_heads["angle_residual_head"](
+        roll_angle_logits = self.mlp_heads["roll_angle_cls_head"](box_features).transpose(1, 2)
+        roll_angle_residual_normalized = self.mlp_heads["roll_angle_residual_head"](
+            box_features
+        ).transpose(1, 2)
+        pitch_angle_logits = self.mlp_heads["pitch_angle_cls_head"](box_features).transpose(1, 2)
+        pitch_angle_residual_normalized = self.mlp_heads["pitch_angle_residual_head"](
+            box_features
+        ).transpose(1, 2)
+        yaw_angle_logits = self.mlp_heads["yaw_angle_cls_head"](box_features).transpose(1, 2)
+        yaw_angle_residual_normalized = self.mlp_heads["yaw_angle_residual_head"](
             box_features
         ).transpose(1, 2)
         sg_para = self.mlp_heads["sg_para_head"](
@@ -251,12 +267,26 @@ class Model3DETR(nn.Module):
         cls_logits = cls_logits.reshape(num_layers, batch, num_queries, -1)
         center_offset = center_offset.reshape(num_layers, batch, num_queries, -1)
         size_normalized = size_normalized.reshape(num_layers, batch, num_queries, -1)
-        angle_logits = angle_logits.reshape(num_layers, batch, num_queries, -1)
-        angle_residual_normalized = angle_residual_normalized.reshape(
+        roll_angle_logits = roll_angle_logits.reshape(num_layers, batch, num_queries, -1)
+        roll_angle_residual_normalized = roll_angle_residual_normalized.reshape(
             num_layers, batch, num_queries, -1
         )
-        angle_residual = angle_residual_normalized * (
-                np.pi / angle_residual_normalized.shape[-1]
+        roll_angle_residual = roll_angle_residual_normalized * (
+                np.pi / roll_angle_residual_normalized.shape[-1]
+        )
+        pitch_angle_logits = pitch_angle_logits.reshape(num_layers, batch, num_queries, -1)
+        pitch_angle_residual_normalized = pitch_angle_residual_normalized.reshape(
+            num_layers, batch, num_queries, -1
+        )
+        pitch_angle_residual = pitch_angle_residual_normalized * (
+                np.pi / pitch_angle_residual_normalized.shape[-1]
+        )
+        yaw_angle_logits = yaw_angle_logits.reshape(num_layers, batch, num_queries, -1)
+        yaw_angle_residual_normalized = yaw_angle_residual_normalized.reshape(
+            num_layers, batch, num_queries, -1
+        )
+        yaw_angle_residual = yaw_angle_residual_normalized * (
+                np.pi / roll_angle_residual_normalized.shape[-1]
         )
         sg_para = sg_para.reshape(num_layers, batch, num_queries, -1)
 
@@ -269,14 +299,20 @@ class Model3DETR(nn.Module):
             ) = self.box_processor.compute_predicted_center(
                 center_offset[l], query_xyz, point_cloud_dims
             )
-            angle_continuous = self.box_processor.compute_predicted_angle(
-                angle_logits[l], angle_residual[l]
+            roll_angle_continuous = self.box_processor.compute_predicted_angle(
+                roll_angle_logits[l], roll_angle_residual[l]
+            )
+            pitch_angle_continuous = self.box_processor.compute_predicted_angle(
+                pitch_angle_logits[l], pitch_angle_residual[l]
+            )
+            yaw_angle_continuous = self.box_processor.compute_predicted_angle(
+                yaw_angle_logits[l], yaw_angle_residual[l]
             )
             size_unnormalized = self.box_processor.compute_predicted_size(
                 size_normalized[l], point_cloud_dims
             )
             box_corners = self.box_processor.box_parametrization_to_corners(
-                center_unnormalized, size_unnormalized, angle_continuous
+                center_unnormalized, size_unnormalized, roll_angle_continuous, pitch_angle_continuous, yaw_angle_continuous
             )
 
             # below are not used in computing loss (only for matching/mAP eval)
@@ -293,10 +329,18 @@ class Model3DETR(nn.Module):
                 "center_unnormalized": center_unnormalized,
                 "size_normalized": size_normalized[l],
                 "size_unnormalized": size_unnormalized,
-                "angle_logits": angle_logits[l],
-                "angle_residual": angle_residual[l],
-                "angle_residual_normalized": angle_residual_normalized[l],
-                "angle_continuous": angle_continuous,
+                "roll_angle_logits": roll_angle_logits[l],
+                "roll_angle_residual": roll_angle_residual[l],
+                "roll_angle_residual_normalized": roll_angle_residual_normalized[l],
+                "roll_angle_continuous": roll_angle_continuous,
+                "pitch_angle_logits": pitch_angle_logits[l],
+                "pitch_angle_residual": pitch_angle_residual[l],
+                "pitch_angle_residual_normalized": pitch_angle_residual_normalized[l],
+                "pitch_angle_continuous": pitch_angle_continuous,
+                "yaw_angle_logits": yaw_angle_logits[l],
+                "yaw_angle_residual": yaw_angle_residual[l],
+                "yaw_angle_residual_normalized": yaw_angle_residual_normalized[l],
+                "yaw_angle_continuous": yaw_angle_continuous,
                 "objectness_prob": objectness_prob,
                 "sem_cls_prob": semcls_prob,
                 "box_corners": box_corners,

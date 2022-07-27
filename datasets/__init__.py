@@ -21,7 +21,7 @@ def build_dataset(args):
             root_dir=args.dataset_root_dir, 
             # meta_data_dir=args.meta_data_dir,
             use_color=args.use_color,
-            augment=True
+            augment=False       # SG dataset in the camera coordinate currently not working with augmentation
         ),
         "test": dataset_builder(
             dataset_config, 

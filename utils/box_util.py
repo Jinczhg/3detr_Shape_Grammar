@@ -210,6 +210,32 @@ def box2d_iou(box1, box2):
 # -----------------------------------------------------------
 # Convert from box parameters to
 # -----------------------------------------------------------
+def rotx(t):
+    """Rotation about the x-axis."""
+    c = np.cos(t)
+    s = np.sin(t)
+    return np.array([[1,  0,  0],
+                     [0,  c, -s],
+                     [0,  s,  c]])
+
+
+def rotx_batch(t):
+    """Rotation about the x-axis.
+    t: (x1,x2,...xn)
+    return: (x1,x2,...,xn,3,3)
+    """
+    input_shape = t.shape
+    output = np.zeros(tuple(list(input_shape) + [3, 3]))
+    c = np.cos(t)
+    s = np.sin(t)
+    output[..., 0, 0] = 1
+    output[..., 1, 1] = c
+    output[..., 1, 2] = -s
+    output[..., 2, 1] = s
+    output[..., 2, 2] = c
+    return output
+
+
 def roty(t):
     """Rotation about the y-axis."""
     c = np.cos(t)
@@ -231,6 +257,32 @@ def roty_batch(t):
     output[..., 1, 1] = 1
     output[..., 2, 0] = -s
     output[..., 2, 2] = c
+    return output
+
+
+def rotz(t):
+    """Rotation about the z-axis."""
+    c = np.cos(t)
+    s = np.sin(t)
+    return np.array([[c, -s,  0],
+                     [s,  c,  0],
+                     [0,  0,  1]])
+
+
+def rotz_batch(t):
+    """Rotation about the z-axis.
+    t: (x1,x2,...xn)
+    return: (x1,x2,...,xn,3,3)
+    """
+    input_shape = t.shape
+    output = np.zeros(tuple(list(input_shape) + [3, 3]))
+    c = np.cos(t)
+    s = np.sin(t)
+    output[..., 0, 0] = c
+    output[..., 0, 1] = -s
+    output[..., 1, 0] = s
+    output[..., 1, 1] = c
+    output[..., 2, 2] = 1
     return output
 
 
@@ -262,9 +314,12 @@ def flip_axis_to_camera_np(pc):
     return pc2
 
 
-def get_3d_box_batch_np(box_size, angle, center):
-    input_shape = angle.shape
-    R = roty_batch(angle)
+def get_3d_box_batch_np(box_size, roll, pitch, yaw, center):
+    input_shape = roll.shape
+    Rx = rotx_batch(roll)
+    Ry = roty_batch(pitch)
+    Rz = rotz_batch(yaw)
+    R = np.matmul(np.matmul(Rx, Ry), Rz)
     l = np.expand_dims(box_size[..., 0], -1)  # [x1,...,xn,1]
     w = np.expand_dims(box_size[..., 1], -1)
     h = np.expand_dims(box_size[..., 2], -1)
@@ -295,6 +350,21 @@ def flip_axis_to_camera_tensor(pc):
     return pc2
 
 
+def rotx_batch_tensor(t):
+    input_shape = t.shape
+    output = torch.zeros(
+        tuple(list(input_shape) + [3, 3]), dtype=torch.float32, device=t.device
+    )
+    c = torch.cos(t)
+    s = torch.sin(t)
+    output[..., 0, 0] = 1
+    output[..., 1, 1] = c
+    output[..., 1, 2] = -s
+    output[..., 2, 1] = s
+    output[..., 2, 2] = c
+    return output
+
+
 def roty_batch_tensor(t):
     input_shape = t.shape
     output = torch.zeros(
@@ -310,24 +380,46 @@ def roty_batch_tensor(t):
     return output
 
 
-def get_3d_box_batch_tensor(box_size, angle, center):
+def rotz_batch_tensor(t):
+    input_shape = t.shape
+    output = torch.zeros(
+        tuple(list(input_shape) + [3, 3]), dtype=torch.float32, device=t.device
+    )
+    c = torch.cos(t)
+    s = torch.sin(t)
+    output[..., 0, 0] = c
+    output[..., 0, 1] = -s
+    output[..., 1, 0] = s
+    output[..., 1, 1] = c
+    output[..., 2, 2] = 1
+    return output
+
+
+def get_3d_box_batch_tensor(box_size, roll, pitch, yaw, center):
     assert isinstance(box_size, torch.Tensor)
-    assert isinstance(angle, torch.Tensor)
+    assert isinstance(roll, torch.Tensor)
+    assert isinstance(pitch, torch.Tensor)
+    assert isinstance(yaw, torch.Tensor)
     assert isinstance(center, torch.Tensor)
 
     reshape_final = False
-    if angle.ndim == 2:
+    if roll.ndim == 2:
         assert box_size.ndim == 3
         assert center.ndim == 3
         bsize = box_size.shape[0]
         nprop = box_size.shape[1]
         box_size = box_size.reshape(-1, box_size.shape[-1])
-        angle = angle.reshape(-1)
+        roll = roll.reshape(-1)
+        pitch = pitch.reshape(-1)
+        yaw = yaw.reshape(-1)
         center = center.reshape(-1, 3)
         reshape_final = True
 
-    input_shape = angle.shape
-    R = roty_batch_tensor(angle)
+    input_shape = roll.shape
+    Rx = rotx_batch_tensor(roll)
+    Ry = roty_batch_tensor(pitch)
+    Rz = rotz_batch_tensor(yaw)
+    R = torch.matmul(torch.matmul(Rx, Ry), Rz)
     l = torch.unsqueeze(box_size[..., 0], -1)  # [x1,...,xn,1]
     w = torch.unsqueeze(box_size[..., 1], -1)
     h = torch.unsqueeze(box_size[..., 2], -1)

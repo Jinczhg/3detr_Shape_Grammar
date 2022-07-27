@@ -121,14 +121,16 @@ class SGDatasetConfig(object):
     def class2anglebatch_tensor(self, pred_cls, residual, to_label_format=True):
         return self.class2angle_batch(pred_cls, residual, to_label_format)
 
-    def box_parametrization_to_corners(self, box_center_unnorm, box_size, box_angle):
+    def box_parametrization_to_corners(self, box_center_unnorm, box_size, box_angle_roll, box_angle_pitch, box_angle_yaw):
+        # SG dataset doesn't need the flipping step. Original data is already in the cam coordinate
         # box_center_upright = sg_flip_axis_to_camera_tensor(box_center_unnorm)
-        boxes = get_3d_box_batch_tensor(box_size, box_angle, box_center_unnorm)
+        boxes = get_3d_box_batch_tensor(box_size, box_angle_roll, box_angle_pitch, box_angle_yaw, box_center_unnorm)
         return boxes
 
-    def box_parametrization_to_corners_np(self, box_center_unnorm, box_size, box_angle):
+    def box_parametrization_to_corners_np(self, box_center_unnorm, box_size, box_angle_roll, box_angle_pitch, box_angle_yaw):
+        # SG dataset doesn't need the flipping step. Original data is already in the cam coordinate
         # box_center_upright = sg_flip_axis_to_camera_np(box_center_unnorm)
-        boxes = get_3d_box_batch_np(box_size, box_angle, box_center_unnorm)
+        boxes = get_3d_box_batch_np(box_size, box_angle_roll, box_angle_pitch, box_angle_yaw, box_center_unnorm)
         return boxes
 
     def my_compute_box_3d(self, center, size, rotation):
@@ -282,8 +284,12 @@ class SGDetectionDataset(Dataset):
                 )
 
         # ------------------------------- LABELS ------------------------------
-        angle_classes = np.zeros((self.max_num_obj,), dtype=np.float32)
-        angle_residuals = np.zeros((self.max_num_obj,), dtype=np.float32)
+        roll_angle_classes = np.zeros((self.max_num_obj,), dtype=np.float32)
+        roll_angle_residuals = np.zeros((self.max_num_obj,), dtype=np.float32)
+        pitch_angle_classes = np.zeros((self.max_num_obj,), dtype=np.float32)
+        pitch_angle_residuals = np.zeros((self.max_num_obj,), dtype=np.float32)
+        yaw_angle_classes = np.zeros((self.max_num_obj,), dtype=np.float32)
+        yaw_angle_residuals = np.zeros((self.max_num_obj,), dtype=np.float32)
         raw_sizes = np.zeros((self.max_num_obj, 3), dtype=np.float32)
         label_mask = np.zeros((self.max_num_obj))
         label_mask[0: bboxes.shape[0]] = 1
@@ -301,9 +307,15 @@ class SGDetectionDataset(Dataset):
             sg_para = bbox[9:16]
             sg_paras[i, :] = sg_para
             raw_sizes[i, :] = box3d_size
-            angle_class, angle_residual = self.dataset_config.angle2class(bbox[7])
-            angle_classes[i] = angle_class
-            angle_residuals[i] = angle_residual
+            roll_angle_class, roll_angle_residual = self.dataset_config.angle2class(bbox[6])
+            roll_angle_classes[i] = roll_angle_class
+            roll_angle_residuals[i] = roll_angle_residual
+            pitch_angle_class, pitch_angle_residual = self.dataset_config.angle2class(bbox[7])
+            pitch_angle_classes[i] = pitch_angle_class
+            pitch_angle_residuals[i] = pitch_angle_residual
+            yaw_angle_class, yaw_angle_residual = self.dataset_config.angle2class(bbox[8])
+            yaw_angle_classes[i] = yaw_angle_class
+            yaw_angle_residuals[i] = yaw_angle_residual
             corners_3d = self.dataset_config.my_compute_box_3d(
                 bbox[0:3], bbox[3:6], bbox[6:9]
             )
@@ -334,8 +346,6 @@ class SGDetectionDataset(Dataset):
         point_cloud_dims_max = point_cloud.max(axis=0)
 
         mult_factor = point_cloud_dims_max - point_cloud_dims_min
-        assert (mult_factor.all() != 0), "scan path is " + str(scan_path) + "; self_aug = " + str(self.augment) + "; max = " + str(
-            point_cloud_dims_max) + "; min = " + str(point_cloud_dims_min) + "; pc[12651] = " + str(point_cloud[12651])
         box_sizes_normalized = scale_points(
             raw_sizes.astype(np.float32)[None, ...],
             mult_factor=1.0 / mult_factor[None, ...],
@@ -368,16 +378,28 @@ class SGDetectionDataset(Dataset):
         box_centers_normalized = box_centers_normalized * target_bboxes_mask[..., None]
 
         # re-encode angles to be consistent with VoteNet eval
-        angle_classes = angle_classes.astype(np.int64)
-        angle_residuals = angle_residuals.astype(np.float32)
-        raw_angles = self.dataset_config.class2angle_batch(
-            angle_classes, angle_residuals
+        roll_angle_classes = roll_angle_classes.astype(np.int64)
+        roll_angle_residuals = roll_angle_residuals.astype(np.float32)
+        pitch_angle_classes = pitch_angle_classes.astype(np.int64)
+        pitch_angle_residuals = pitch_angle_residuals.astype(np.float32)
+        yaw_angle_classes = yaw_angle_classes.astype(np.int64)
+        yaw_angle_residuals = yaw_angle_residuals.astype(np.float32)
+        roll_raw_angles = self.dataset_config.class2angle_batch(
+            roll_angle_classes, roll_angle_residuals
+        )
+        pitch_raw_angles = self.dataset_config.class2angle_batch(
+            pitch_angle_classes, pitch_angle_residuals
+        )
+        yaw_raw_angles = self.dataset_config.class2angle_batch(
+            yaw_angle_classes, yaw_angle_residuals
         )
 
         box_corners = self.dataset_config.box_parametrization_to_corners_np(
             box_centers[None, ...],
             raw_sizes.astype(np.float32)[None, ...],
-            raw_angles.astype(np.float32)[None, ...],
+            roll_raw_angles.astype(np.float32)[None, ...],
+            pitch_raw_angles.astype(np.float32)[None, ...],
+            yaw_raw_angles.astype(np.float32)[None, ...]
         )
         box_corners = box_corners.squeeze(0)
 
@@ -393,9 +415,15 @@ class SGDetectionDataset(Dataset):
         ret_dict["scan_idx"] = np.array(idx).astype(np.int64)
         ret_dict["gt_box_sizes"] = raw_sizes.astype(np.float32)
         ret_dict["gt_box_sizes_normalized"] = box_sizes_normalized.astype(np.float32)
-        ret_dict["gt_box_angles"] = raw_angles.astype(np.float32)
-        ret_dict["gt_angle_class_label"] = angle_classes
-        ret_dict["gt_angle_residual_label"] = angle_residuals
+        ret_dict["gt_box_angles_roll"] = roll_raw_angles.astype(np.float32)
+        ret_dict["gt_angle_class_label_roll"] = roll_angle_classes
+        ret_dict["gt_angle_residual_label_roll"] = roll_angle_residuals
+        ret_dict["gt_box_angles_pitch"] = pitch_raw_angles.astype(np.float32)
+        ret_dict["gt_angle_class_label_pitch"] = pitch_angle_classes
+        ret_dict["gt_angle_residual_label_pitch"] = pitch_angle_residuals
+        ret_dict["gt_box_angles_yaw"] = yaw_raw_angles.astype(np.float32)
+        ret_dict["gt_angle_class_label_yaw"] = yaw_angle_classes
+        ret_dict["gt_angle_residual_label_yaw"] = yaw_angle_residuals
         ret_dict["point_cloud_dims_min"] = point_cloud_dims_min.astype(np.float32)
         ret_dict["point_cloud_dims_max"] = point_cloud_dims_max.astype(np.float32)
         ret_dict["sg_para"] = sg_paras_normalized.astype(np.float32)

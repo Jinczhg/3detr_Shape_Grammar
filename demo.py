@@ -69,7 +69,7 @@ ROOT_DIR = BASE_DIR
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 sys.path.append(os.path.join(ROOT_DIR, 'models'))
 from utils.pc_util import random_sampling
-from utils.ap_calculator import parse_predictions
+from utils.ap_calculator import parse_predictions, parse_predictions_eval
 import datasets
 
 
@@ -167,9 +167,15 @@ if __name__ == '__main__':
     outputs = outputs["outputs"]
     point_clouds = inputs['point_clouds']
     predicted_box_corners = outputs["box_corners"]
+    roll_continuous_angle = outputs["roll_angle_continuous"]
+    pitch_continuous_angle = outputs["pitch_angle_continuous"]
+    yaw_continuous_angle = outputs["yaw_angle_continuous"]
     sem_cls_probs = outputs["sem_cls_prob"]
     objectness_probs = outputs["objectness_prob"]
-    pred_map_cls = parse_predictions(predicted_box_corners, sem_cls_probs, objectness_probs, point_clouds, eval_config_dict)
+    pred_map_cls = parse_predictions_eval(predicted_box_corners, roll_continuous_angle, pitch_continuous_angle, yaw_continuous_angle,
+                                          sem_cls_probs,
+                                          objectness_probs, point_clouds,
+                                          eval_config_dict)
     print('Finished detection. %d object detected.' % (len(pred_map_cls[0])))
 
     # dump_dir = os.path.join(demo_dir, '%s_results' % (args.dataset))
