@@ -11,7 +11,7 @@ from models.model_3detr import build_preencoder, build_encoder, build_decoder, M
 from optimizer import build_optimizer
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', default='sunrgbd', help='Dataset: sunrgbd or scannet [default: sunrgbd]')
+parser.add_argument('--dataset', default='sg', help='Dataset: sunrgbd, scannet or sg [default: sg]')
 parser.add_argument('--num_point', type=int, default=20000, help='Point Number [default: 20000]')
 ##### Model #####
 parser.add_argument(
@@ -69,7 +69,7 @@ ROOT_DIR = BASE_DIR
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 sys.path.append(os.path.join(ROOT_DIR, 'models'))
 from utils.pc_util import random_sampling
-# from ap_helper import parse_predictions
+from utils.ap_calculator import parse_predictions
 import datasets
 
 
@@ -91,23 +91,23 @@ if __name__ == '__main__':
     DC = datasets.DATASET_FUNCTIONS[args.dataset][1]()
     if args.dataset == 'sunrgbd':
         sys.path.append(os.path.join(ROOT_DIR, 'SUNRGBD'))
-        checkpoint_path = os.path.join(demo_dir, 'pretrained_votenet_on_sunrgbd.tar')
+        checkpoint_path = os.path.join(ROOT_DIR, 'pretrained_votenet_on_sunrgbd.tar')
         pc_path = os.path.join(demo_dir, 'input_pc_sunrgbd.txt')
     elif args.dataset == 'scannet':
         sys.path.append(os.path.join(ROOT_DIR, 'SCANNET'))
-        checkpoint_path = os.path.join(demo_dir, 'pretrained_votenet_on_scannet.tar')
+        checkpoint_path = os.path.join(ROOT_DIR, 'pretrained_votenet_on_scannet.tar')
         pc_path = os.path.join(demo_dir, 'input_pc_scannet.txt')
     elif args.dataset == 'sg':
         sys.path.append(os.path.join(ROOT_DIR, 'SG'))
-        checkpoint_path = os.path.join(demo_dir, 'pretrained_votenet_on_scannet.tar')
-        pc_path = os.path.join(demo_dir, 'input_pc_sg.txt')
+        checkpoint_path = os.path.join(ROOT_DIR, 'outputs/sg_single_table/checkpoint_best.pth')
+        pc_path = os.path.join(demo_dir, 'pointcloud.txt')
     else:
         print('Unkown dataset.')
         exit(-1)
 
     eval_config_dict = {'remove_empty_box': True, 'use_3d_nms': True, 'nms_iou': 0.25,
                         'use_old_type_nms': False, 'cls_nms': False, 'per_class_proposal': False,
-                        'conf_thresh': 0.5, 'dataset_config': DC}
+                        'use_cls_confidence_only': False, 'conf_thresh': 0.5, 'no_nms': False, 'dataset_config': DC}
 
     # Init the model and optimzier
     # MODEL = importlib.import_module('votenet')  # import network module
@@ -138,29 +138,41 @@ if __name__ == '__main__':
     optimizer = optim.AdamW(net.parameters(), lr=5e-4, weight_decay=0)
     checkpoint = torch.load(checkpoint_path)
 
-    net.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    net.load_state_dict(checkpoint['model'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
     epoch = checkpoint['epoch']
     print("Loaded checkpoint %s (epoch: %d)" % (checkpoint_path, epoch))
 
     # Load and preprocess input point cloud
     net.eval()  # set model to eval mode (for bn and dp)
-    pc = np.loadtxt(pc_path)
-    pc = preprocess_point_cloud(pc)
+    pointcloud = np.loadtxt(pc_path)
+    pc = random_sampling(pointcloud, 20000)
+    pc_dims_min = pc.min(axis=0)
+    pc_dims_max = pc.max(axis=0)
+    pc = np.expand_dims(pc.astype(np.float32), 0)  # (1,20000,3)
+    pc_dims_min = np.expand_dims(pc_dims_min.astype(np.float32), 0)  # (1,20000,3)
+    pc_dims_max = np.expand_dims(pc_dims_max.astype(np.float32), 0)  # (1,20000,3)
     print('Loaded point cloud data: %s' % pc_path)
 
     # Model inference
-    inputs = {'point_clouds': torch.from_numpy(pc).to(device)}
+    inputs = {'point_clouds': torch.from_numpy(pc).to(device),
+              "point_cloud_dims_min": torch.from_numpy(pc_dims_min).to(device),
+              "point_cloud_dims_max": torch.from_numpy(pc_dims_max).to(device)
+              }
     tic = time.time()
     with torch.no_grad():
-        end_points = net(inputs)
+        outputs = net(inputs)
     toc = time.time()
     print('Inference time: %f' % (toc - tic))
-    # end_points['point_clouds'] = inputs['point_clouds']
-    # pred_map_cls = parse_predictions(end_points, eval_config_dict)
-    # print('Finished detection. %d object detected.' % (len(pred_map_cls[0])))
-    #
-    # dump_dir = os.path.join(demo_dir, '%s_results' % (FLAGS.dataset))
+    outputs = outputs["outputs"]
+    point_clouds = inputs['point_clouds']
+    predicted_box_corners = outputs["box_corners"]
+    sem_cls_probs = outputs["sem_cls_prob"]
+    objectness_probs = outputs["objectness_prob"]
+    pred_map_cls = parse_predictions(predicted_box_corners, sem_cls_probs, objectness_probs, point_clouds, eval_config_dict)
+    print('Finished detection. %d object detected.' % (len(pred_map_cls[0])))
+
+    # dump_dir = os.path.join(demo_dir, '%s_results' % (args.dataset))
     # if not os.path.exists(dump_dir): os.mkdir(dump_dir)
     # MODEL.dump_results(end_points, dump_dir, DC, True)
     # print('Dumped detection results to folder %s' % (dump_dir))

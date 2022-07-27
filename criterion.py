@@ -104,7 +104,7 @@ class SetCriterion(nn.Module):
             "loss_center": self.loss_center,
             "loss_size": self.loss_size,
             "loss_giou": self.loss_giou,
-            "loss_sg_para": self.loss_sg_para,
+            #"loss_sg_para": self.loss_sg_para,
             # this isn't used during training and is logged for debugging.
             # thus, this loss does not have a loss_weight associated with it.
             "loss_cardinality": self.loss_cardinality,
@@ -434,7 +434,7 @@ def build_criterion(args, dataset_config):
         "loss_angle_reg_weight": args.loss_angle_reg_weight,
         "loss_center_weight": args.loss_center_weight,
         "loss_size_weight": args.loss_size_weight,
-        "loss_sg_para_weight": args.loss_sg_para_weight,
+        #"loss_sg_para_weight": args.loss_sg_para_weight,
     }
     criterion = SetCriterion(matcher, dataset_config, loss_weight_dict)
     return criterion
