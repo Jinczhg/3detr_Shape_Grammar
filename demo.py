@@ -99,7 +99,7 @@ if __name__ == '__main__':
         pc_path = os.path.join(demo_dir, 'input_pc_scannet.txt')
     elif args.dataset == 'sg':
         sys.path.append(os.path.join(ROOT_DIR, 'SG'))
-        checkpoint_path = os.path.join(ROOT_DIR, 'outputs/sg_single_table/checkpoint_best.pth')
+        checkpoint_path = os.path.join(ROOT_DIR, 'outputs/sg_single_table_v2/checkpoint_best.pth')
         pc_path = os.path.join(demo_dir, 'pointcloud.txt')
     else:
         print('Unkown dataset.')
@@ -176,6 +176,7 @@ if __name__ == '__main__':
                                           sem_cls_probs,
                                           objectness_probs, point_clouds,
                                           eval_config_dict)
+    print(pred_map_cls)
     print('Finished detection. %d object detected.' % (len(pred_map_cls[0])))
 
     # dump_dir = os.path.join(demo_dir, '%s_results' % (args.dataset))

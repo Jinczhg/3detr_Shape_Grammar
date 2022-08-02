@@ -260,9 +260,9 @@ def parse_predictions_eval(
     """
 
     sem_cls_probs = sem_cls_probs.detach().cpu().numpy()  # B,num_proposal,10
-    roll_angle_continuous = roll_angle_continuous.detach().cpu.numpy()
-    pitch_angle_continuous = pitch_angle_continuous.detach().cpu.numpy()
-    yaw_angle_continuous = yaw_angle_continuous.detach().cpu.numpy()
+    roll_angle_continuous = roll_angle_continuous.detach().cpu().numpy()
+    pitch_angle_continuous = pitch_angle_continuous.detach().cpu().numpy()
+    yaw_angle_continuous = yaw_angle_continuous.detach().cpu().numpy()
     pred_sem_cls_prob = np.max(sem_cls_probs, -1)  # B,num_proposal
     pred_sem_cls = np.argmax(sem_cls_probs, -1)
     obj_prob = objectness_probs.detach().cpu().numpy()

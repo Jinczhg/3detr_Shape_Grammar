@@ -167,8 +167,8 @@ class SetCriterion(nn.Module):
             angle_residual = outputs[str(s + "_angle_residual_normalized")]
 
             if targets["num_boxes_replica"] > 0:
-                gt_angle_label = targets["gt_angle_class_label"]
-                gt_angle_residual = targets["gt_angle_residual_label"]
+                gt_angle_label = targets[str("gt_angle_class_label" + "_" + s)]
+                gt_angle_residual = targets[str("gt_angle_residual_label" + "_" + s)]
                 gt_angle_residual_normalized = gt_angle_residual / (
                         np.pi / self.dataset_config.num_angle_bin
                 )
@@ -366,12 +366,12 @@ class SetCriterion(nn.Module):
         return {"loss_sg_para": sg_loss}
 
     def single_output_forward(self, outputs, targets):
+        mask = (targets["gt_box_angles_roll"] != 0) + (targets["gt_box_angles_pitch"] != 0) + (targets["gt_box_angles_yaw"] != 0)
         gious = generalized_box3d_iou(
             outputs["box_corners"],
             targets["gt_box_corners"],
             targets["nactual_gt"],
-            rotated_boxes=torch.any(targets["gt_box_angles_roll"] > 0 or targets["gt_box_angles_pitch"] > 0 or targets[
-                "gt_box_angles_yaw"] > 0).item(),
+            rotated_boxes=torch.any(mask).item(),
             needs_grad=(self.loss_weight_dict["loss_giou_weight"] > 0),
         )
 
