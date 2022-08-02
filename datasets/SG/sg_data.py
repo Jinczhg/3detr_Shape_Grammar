@@ -28,8 +28,7 @@ from PIL import Image
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 sys.path.append(os.path.join(BASE_DIR, '../../'))
-from utils import pc_util
-from datasets.SUNRGBD import sunrgbd_utils
+from utils import pc_util, box_util
 
 CLASS_WHITELIST = ['bed', 'table', 'sofa', 'chair', 'bookshelf']
 class2id = {'table': 0, 'chair': 1, 'bookshelf': 2, 'bed': 3, 'sofa': 4, 'dresser': 5}
@@ -221,8 +220,8 @@ def compute_box_3d(obj):
     center = obj.centroid
 
     # compute rotational matrix around yaw axis
-    R = np.matmul(sunrgbd_utils.rotx(obj.roll), sunrgbd_utils.roty(obj.pitch))
-    R = np.matmul(R, sunrgbd_utils.rotz(obj.yaw))
+    R = np.matmul(box_util.rotz(obj.yaw), box_util.roty(obj.pitch))
+    R = np.matmul(R, box_util.rotx(obj.roll))
     # b,a,c = dimension
     # print R, a,b,c
 

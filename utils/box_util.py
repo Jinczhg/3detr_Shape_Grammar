@@ -319,7 +319,7 @@ def get_3d_box_batch_np(box_size, roll, pitch, yaw, center):
     Rx = rotx_batch(roll)
     Ry = roty_batch(pitch)
     Rz = rotz_batch(yaw)
-    R = np.matmul(np.matmul(Rx, Ry), Rz)
+    R = np.matmul(np.matmul(Rz, Ry), Rx)
     l = np.expand_dims(box_size[..., 0], -1)  # [x1,...,xn,1]
     w = np.expand_dims(box_size[..., 1], -1)
     h = np.expand_dims(box_size[..., 2], -1)
@@ -419,7 +419,7 @@ def get_3d_box_batch_tensor(box_size, roll, pitch, yaw, center):
     Rx = rotx_batch_tensor(roll)
     Ry = roty_batch_tensor(pitch)
     Rz = rotz_batch_tensor(yaw)
-    R = torch.matmul(torch.matmul(Rx, Ry), Rz)
+    R = torch.matmul(torch.matmul(Rz, Ry), Rx)
     l = torch.unsqueeze(box_size[..., 0], -1)  # [x1,...,xn,1]
     w = torch.unsqueeze(box_size[..., 1], -1)
     h = torch.unsqueeze(box_size[..., 2], -1)

@@ -352,7 +352,7 @@ def main(local_rank, args):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed + get_rank())
 
-    datasets, dataset_config = build_dataset(args)
+    datasets, dataset_config = build_dataset(args)  # training dataset augmentation set to False
     model, _ = build_model(args, dataset_config)
     model = model.cuda(local_rank)
     model_no_ddp = model

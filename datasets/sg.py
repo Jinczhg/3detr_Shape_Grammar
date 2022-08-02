@@ -44,24 +44,24 @@ MEAN_COLOR_RGB = np.array([0.5, 0.5, 0.5])  # sunrgbd color is in 0~1
 DATA_PATH = "/home/jzhang72/PycharmProjects/3detr_Shape_Grammar/datasets/SG/sg_pc_bbox"  ## Replace with path to dataset
 
 
-def sg_flip_axis_to_camera_tensor(pc):
-    """Flip X-left,Y-up,Z-forward to X-right,Y-down,Z-forward
-   Input and output are both (N,3) array
-   """
-    pc2 = torch.clone(pc)
-    pc2[..., 0] *= -1
-    pc2[..., 1] *= -1
-    return pc2
-
-
-def sg_flip_axis_to_camera_np(pc):
-    """Flip X-left,Y-up,Z-forward to X-right,Y-down,Z-forward
-   Input and output are both (N,3) array
-   """
-    pc2 = pc.copy()
-    pc2[..., 0] *= -1
-    pc2[..., 1] *= -1
-    return pc2
+# def sg_flip_axis_to_camera_tensor(pc):
+#     """Flip X-left,Y-up,Z-forward to X-right,Y-down,Z-forward
+#    Input and output are both (N,3) array
+#    """
+#     pc2 = torch.clone(pc)
+#     pc2[..., 0] *= -1
+#     pc2[..., 1] *= -1
+#     return pc2
+#
+#
+# def sg_flip_axis_to_camera_np(pc):
+#     """Flip X-left,Y-up,Z-forward to X-right,Y-down,Z-forward
+#    Input and output are both (N,3) array
+#    """
+#     pc2 = pc.copy()
+#     pc2[..., 0] *= -1
+#     pc2[..., 1] *= -1
+#     return pc2
 
 
 class SGDatasetConfig(object):
@@ -134,8 +134,8 @@ class SGDatasetConfig(object):
         return boxes
 
     def my_compute_box_3d(self, center, size, rotation):
-        R = np.matmul(pc_util.rotx(rotation[0]), pc_util.roty(rotation[1]))
-        R = np.matmul(R, pc_util.rotz(rotation[2]))
+        R = np.matmul(pc_util.rotz(rotation[2]), pc_util.roty(rotation[1]))
+        R = np.matmul(R, pc_util.rotx(rotation[0]))
         l, w, h = size
         x_corners = [-l, l, l, -l, -l, l, l, -l]
         y_corners = [w, w, -w, -w, w, w, -w, -w]

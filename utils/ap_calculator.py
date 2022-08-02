@@ -242,6 +242,7 @@ def parse_predictions_eval(
     predicted_boxes, roll_angle_continuous, pitch_angle_continuous, yaw_angle_continuous, sem_cls_probs, objectness_probs, point_cloud,
         config_dict
 ):
+    # Customized prediction function for shape grammar estimation
     """Parse predictions to OBB parameters and suppress overlapping boxes
 
     Args:
