@@ -214,9 +214,9 @@ def rotx(t):
     """Rotation about the x-axis."""
     c = np.cos(t)
     s = np.sin(t)
-    return np.array([[1,  0,  0],
-                     [0,  c, -s],
-                     [0,  s,  c]])
+    return np.array([[1, 0, 0],
+                     [0, c, -s],
+                     [0, s, c]])
 
 
 def rotx_batch(t):
@@ -264,9 +264,9 @@ def rotz(t):
     """Rotation about the z-axis."""
     c = np.cos(t)
     s = np.sin(t)
-    return np.array([[c, -s,  0],
-                     [s,  c,  0],
-                     [0,  0,  1]])
+    return np.array([[c, -s, 0],
+                     [s, c, 0],
+                     [0, 0, 1]])
 
 
 def rotz_batch(t):
@@ -286,12 +286,16 @@ def rotz_batch(t):
     return output
 
 
-def get_3d_box(box_size, heading_angle, center):
+def get_3d_box(box_size, roll, pitch, yaw, center):  # never gets used anywhere
     """box_size is array(l,w,h), heading_angle is radius clockwise from pos x axis, center is xyz of box center
     output (8,3) array for 3D box cornders
     Similar to utils/compute_orientation_3d
     """
-    R = roty(heading_angle)
+    # SG modification: no longer support 3D box calculation from heading angle
+    Rx = rotx_batch(roll)
+    Ry = rotz_batch(-pitch)
+    Rz = roty_batch(-yaw)
+    R = np.matmul(np.matmul(Rz, Ry), Rx)
     l, w, h = box_size
     x_corners = [l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2, -l / 2, -l / 2]
     y_corners = [h / 2, h / 2, h / 2, h / 2, -h / 2, -h / 2, -h / 2, -h / 2]
@@ -314,11 +318,77 @@ def flip_axis_to_camera_np(pc):
     return pc2
 
 
-def get_3d_box_batch_np(box_size, roll, pitch, yaw, center):
+def get_3d_box_batch_np(box_size, angle, center):
+    input_shape = angle.shape
+    R = roty_batch(angle)
+    l = np.expand_dims(box_size[..., 0], -1)  # [x1,...,xn,1]
+    w = np.expand_dims(box_size[..., 1], -1)
+    h = np.expand_dims(box_size[..., 2], -1)
+    corners_3d = np.zeros(tuple(list(input_shape) + [8, 3]))
+    corners_3d[..., :, 0] = np.concatenate(
+        (l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2, -l / 2, -l / 2), -1
+    )
+    corners_3d[..., :, 1] = np.concatenate(
+        (h / 2, h / 2, h / 2, h / 2, -h / 2, -h / 2, -h / 2, -h / 2), -1
+    )
+    corners_3d[..., :, 2] = np.concatenate(
+        (w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2, w / 2), -1
+    )
+    tlist = [i for i in range(len(input_shape))]
+    tlist += [len(input_shape) + 1, len(input_shape)]
+    corners_3d = np.matmul(corners_3d, np.transpose(R, tuple(tlist)))
+    corners_3d += np.expand_dims(center, -2)
+    return corners_3d
+
+
+def get_3d_box_batch_tensor(box_size, angle, center):
+    assert isinstance(box_size, torch.Tensor)
+    assert isinstance(angle, torch.Tensor)
+    assert isinstance(center, torch.Tensor)
+
+    reshape_final = False
+    if angle.ndim == 2:
+        assert box_size.ndim == 3
+        assert center.ndim == 3
+        bsize = box_size.shape[0]
+        nprop = box_size.shape[1]
+        box_size = box_size.reshape(-1, box_size.shape[-1])
+        angle = angle.reshape(-1)
+        center = center.reshape(-1, 3)
+        reshape_final = True
+
+    input_shape = angle.shape
+    R = roty_batch_tensor(angle)
+    l = torch.unsqueeze(box_size[..., 0], -1)  # [x1,...,xn,1]
+    w = torch.unsqueeze(box_size[..., 1], -1)
+    h = torch.unsqueeze(box_size[..., 2], -1)
+    corners_3d = torch.zeros(
+        tuple(list(input_shape) + [8, 3]), device=box_size.device, dtype=torch.float32
+    )
+    corners_3d[..., :, 0] = torch.cat(
+        (l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2, -l / 2, -l / 2), -1
+    )
+    corners_3d[..., :, 1] = torch.cat(
+        (h / 2, h / 2, h / 2, h / 2, -h / 2, -h / 2, -h / 2, -h / 2), -1
+    )
+    corners_3d[..., :, 2] = torch.cat(
+        (w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2, w / 2), -1
+    )
+    tlist = [i for i in range(len(input_shape))]
+    tlist += [len(input_shape) + 1, len(input_shape)]
+    corners_3d = torch.matmul(corners_3d, R.permute(tlist))
+    corners_3d += torch.unsqueeze(center, -2)
+    if reshape_final:
+        corners_3d = corners_3d.reshape(bsize, nprop, 8, 3)
+    return corners_3d
+
+
+def get_3d_box_batch_np_sg(box_size, roll, pitch, yaw, center):
+    # SG modification: no longer support 3D box calculation from heading angle
     input_shape = roll.shape
     Rx = rotx_batch(roll)
-    Ry = roty_batch(pitch)
-    Rz = rotz_batch(yaw)
+    Ry = roty_batch(-yaw)
+    Rz = rotz_batch(-pitch)   # coordinate has been flipped from X-right,Y-forward,Z-up to X-right,Y-down,Z-forward
     R = np.matmul(np.matmul(Rz, Ry), Rx)
     l = np.expand_dims(box_size[..., 0], -1)  # [x1,...,xn,1]
     w = np.expand_dims(box_size[..., 1], -1)
@@ -395,7 +465,8 @@ def rotz_batch_tensor(t):
     return output
 
 
-def get_3d_box_batch_tensor(box_size, roll, pitch, yaw, center):
+def get_3d_box_batch_tensor_sg(box_size, roll, pitch, yaw, center):
+    # SG modification: no longer support 3D box calculation from heading angle
     assert isinstance(box_size, torch.Tensor)
     assert isinstance(roll, torch.Tensor)
     assert isinstance(pitch, torch.Tensor)
@@ -417,8 +488,8 @@ def get_3d_box_batch_tensor(box_size, roll, pitch, yaw, center):
 
     input_shape = roll.shape
     Rx = rotx_batch_tensor(roll)
-    Ry = roty_batch_tensor(pitch)
-    Rz = rotz_batch_tensor(yaw)
+    Ry = roty_batch_tensor(-yaw)
+    Rz = rotz_batch_tensor(-pitch)    # coordinate has been flipped from X-right,Y-forward,Z-up to X-right,Y-down,Z-forward
     R = torch.matmul(torch.matmul(Rz, Ry), Rx)
     l = torch.unsqueeze(box_size[..., 0], -1)  # [x1,...,xn,1]
     w = torch.unsqueeze(box_size[..., 1], -1)
@@ -444,7 +515,7 @@ def get_3d_box_batch_tensor(box_size, roll, pitch, yaw, center):
     return corners_3d
 
 
-def get_3d_box_batch(box_size, angle, center):
+def get_3d_box_batch(box_size, angle, center):  # never gets used anywhere
     """box_size: [x1,x2,...,xn,3]
         angle: [x1,x2,...,xn]
         center: [x1,x2,...,xn,3]
@@ -477,7 +548,7 @@ def get_3d_box_batch(box_size, angle, center):
 
 
 def helper_computeIntersection(
-    cp1: torch.Tensor, cp2: torch.Tensor, s: torch.Tensor, e: torch.Tensor
+        cp1: torch.Tensor, cp2: torch.Tensor, s: torch.Tensor, e: torch.Tensor
 ):
     dc = [cp1[0] - cp2[0], cp1[1] - cp2[1]]
     dp = [s[0] - e[0], s[1] - e[1]]
@@ -607,11 +678,11 @@ def enclosing_box3d_vol(corners1, corners2):
 
 
 def generalized_box3d_iou_tensor(
-    corners1: torch.Tensor,
-    corners2: torch.Tensor,
-    nums_k2: torch.Tensor,
-    rotated_boxes: bool = True,
-    return_inter_vols_only: bool = False,
+        corners1: torch.Tensor,
+        corners2: torch.Tensor,
+        nums_k2: torch.Tensor,
+        rotated_boxes: bool = True,
+        return_inter_vols_only: bool = False,
 ):
     """
     Input:
@@ -652,7 +723,7 @@ def generalized_box3d_iou_tensor(
     non_rot_inter_areas = non_rot_inter_areas.view(B, K1, K2)
     if nums_k2 is not None:
         for b in range(B):
-            non_rot_inter_areas[b, :, nums_k2[b] :] = 0
+            non_rot_inter_areas[b, :, nums_k2[b]:] = 0
 
     enclosing_vols = enclosing_box3d_vol(corners1, corners2)
 
@@ -714,11 +785,11 @@ generalized_box3d_iou_tensor_jit = torch.jit.script(generalized_box3d_iou_tensor
 
 
 def generalized_box3d_iou_cython(
-    corners1: torch.Tensor,
-    corners2: torch.Tensor,
-    nums_k2: torch.Tensor,
-    rotated_boxes: bool = True,
-    return_inter_vols_only: bool = False,
+        corners1: torch.Tensor,
+        corners2: torch.Tensor,
+        nums_k2: torch.Tensor,
+        rotated_boxes: bool = True,
+        return_inter_vols_only: bool = False,
 ):
     """
     Input:
@@ -759,7 +830,7 @@ def generalized_box3d_iou_cython(
     non_rot_inter_areas = non_rot_inter_areas.view(B, K1, K2)
     if nums_k2 is not None:
         for b in range(B):
-            non_rot_inter_areas[b, :, nums_k2[b] :] = 0
+            non_rot_inter_areas[b, :, nums_k2[b]:] = 0
 
     enclosing_vols = enclosing_box3d_vol(corners1, corners2)
 
@@ -807,12 +878,12 @@ def generalized_box3d_iou_cython(
 
 
 def generalized_box3d_iou(
-    corners1: torch.Tensor,
-    corners2: torch.Tensor,
-    nums_k2: torch.Tensor,
-    rotated_boxes: bool = True,
-    return_inter_vols_only: bool = False,
-    needs_grad: bool = False,
+        corners1: torch.Tensor,
+        corners2: torch.Tensor,
+        nums_k2: torch.Tensor,
+        rotated_boxes: bool = True,
+        return_inter_vols_only: bool = False,
+        needs_grad: bool = False,
 ):
     if needs_grad is True or box_intersection is None:
         context = torch.enable_grad if needs_grad else torch.no_grad

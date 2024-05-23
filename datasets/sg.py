@@ -35,48 +35,27 @@ from utils.random_cuboid import RandomCuboid
 from utils.pc_util import shift_scale_points, scale_points
 from utils.box_util import (
     flip_axis_to_camera_tensor,
-    get_3d_box_batch_tensor,
+    get_3d_box_batch_tensor_sg,
     flip_axis_to_camera_np,
-    get_3d_box_batch_np,
+    get_3d_box_batch_np_sg,
 )
 
+from datasets.SG.sg_data import DATA
+from datasets.SG.sg_data import class2id
+
 MEAN_COLOR_RGB = np.array([0.5, 0.5, 0.5])  # sunrgbd color is in 0~1
-DATA_PATH = "/home/jzhang72/PycharmProjects/3detr_Shape_Grammar/datasets/SG/sg_pc_bbox"  ## Replace with path to dataset
-
-
-# def sg_flip_axis_to_camera_tensor(pc):
-#     """Flip X-left,Y-up,Z-forward to X-right,Y-down,Z-forward
-#    Input and output are both (N,3) array
-#    """
-#     pc2 = torch.clone(pc)
-#     pc2[..., 0] *= -1
-#     pc2[..., 1] *= -1
-#     return pc2
-#
-#
-# def sg_flip_axis_to_camera_np(pc):
-#     """Flip X-left,Y-up,Z-forward to X-right,Y-down,Z-forward
-#    Input and output are both (N,3) array
-#    """
-#     pc2 = pc.copy()
-#     pc2[..., 0] *= -1
-#     pc2[..., 1] *= -1
-#     return pc2
+DATA_PATH = "/home/jzhang72/PycharmProjects/3detr_Shape_Grammar/datasets/SG/" + DATA + "/sg_pc_bbox"
+num_semcls = len(class2id)
 
 
 class SGDatasetConfig(object):
     def __init__(self):
-        self.num_semcls = 3
+        self.num_semcls = num_semcls
         self.num_angle_bin = 12
         self.max_num_obj = 64
-        self.sg_para_number = 7  # number of shape grammar parameters to be estimated
-        self.type2class = {
-            'table': 0, 'chair': 1, 'bookshelf': 2  # , 'bed': 3, 'sofa': 4, 'dresser': 5,
-        }
+        self.sg_para_number = 6  # number of shape grammar parameters to be estimated
+        self.type2class = class2id
         self.class2type = {self.type2class[t]: t for t in self.type2class}
-        self.type2onehotclass = {
-            'table': 0, 'chair': 1, 'bookshelf': 2  # , 'bed': 3, 'sofa': 4, 'dresser': 5,
-        }
 
     def angle2class(self, angle):
         """Convert continuous angle to discrete class
@@ -89,7 +68,7 @@ class SGDatasetConfig(object):
        """
         num_class = self.num_angle_bin
         angle = angle % (2 * np.pi)
-        assert angle >= 0 and angle <= 2 * np.pi
+        assert 0 <= angle <= 2 * np.pi
         angle_per_class = 2 * np.pi / float(num_class)
         shifted_angle = (angle + angle_per_class / 2) % (2 * np.pi)
         class_id = int(shifted_angle / angle_per_class)
@@ -122,19 +101,19 @@ class SGDatasetConfig(object):
         return self.class2angle_batch(pred_cls, residual, to_label_format)
 
     def box_parametrization_to_corners(self, box_center_unnorm, box_size, box_angle_roll, box_angle_pitch, box_angle_yaw):
-        # SG dataset doesn't need the flipping step. Original data is already in the cam coordinate
-        # box_center_upright = sg_flip_axis_to_camera_tensor(box_center_unnorm)
-        boxes = get_3d_box_batch_tensor(box_size, box_angle_roll, box_angle_pitch, box_angle_yaw, box_center_unnorm)
+        #  Flip X-right,Y-forward,Z-up to X-right,Y-down,Z-forward
+        box_center_upright = flip_axis_to_camera_tensor(box_center_unnorm)
+        boxes = get_3d_box_batch_tensor_sg(box_size, box_angle_roll, box_angle_pitch, box_angle_yaw, box_center_upright)
         return boxes
 
     def box_parametrization_to_corners_np(self, box_center_unnorm, box_size, box_angle_roll, box_angle_pitch, box_angle_yaw):
-        # SG dataset doesn't need the flipping step. Original data is already in the cam coordinate
-        # box_center_upright = sg_flip_axis_to_camera_np(box_center_unnorm)
-        boxes = get_3d_box_batch_np(box_size, box_angle_roll, box_angle_pitch, box_angle_yaw, box_center_unnorm)
+        #  Flip X-right,Y-forward,Z-up to X-right,Y-down,Z-forward
+        box_center_upright = flip_axis_to_camera_np(box_center_unnorm)
+        boxes = get_3d_box_batch_np_sg(box_size, box_angle_roll, box_angle_pitch, box_angle_yaw, box_center_upright)
         return boxes
 
     def my_compute_box_3d(self, center, size, rotation):
-        R = np.matmul(pc_util.rotz(rotation[2]), pc_util.roty(rotation[1]))
+        R = np.matmul(pc_util.roty(rotation[1]), pc_util.rotz(rotation[2]))
         R = np.matmul(R, pc_util.rotx(rotation[0]))
         l, w, h = size
         x_corners = [-l, l, l, -l, -l, l, l, -l]
@@ -232,8 +211,8 @@ class SGDetectionDataset(Dataset):
                 [point_cloud, np.expand_dims(height, 1)], 1
             )  # (N,4) or (N,7)
 
-        # ------------------------------- DATA AUGMENTATION ------------------------------
-        if self.augment:
+        # ------------------------------- DATA AUGMENTATION (Don't do it for SG dataset) ------------------------------
+        if False:   # self.augment: (For SG dataset, don't do augmentation)
             if np.random.random() > 0.5:
                 # Flipping along the YZ plane
                 point_cloud[:, 0] = -1 * point_cloud[:, 0]
@@ -295,16 +274,16 @@ class SGDetectionDataset(Dataset):
         label_mask[0: bboxes.shape[0]] = 1
         # max_bboxes = np.zeros((self.max_num_obj, 10))
         # max_bboxes[0 : bboxes.shape[0], :] = bboxes
-        sg_paras = np.zeros((self.max_num_obj, 7), dtype=np.float32)        # this number is SGDatasetConfig.sg_para_number
+        sg_paras = np.zeros((self.max_num_obj, 6), dtype=np.float32)  # this number is SGDatasetConfig.sg_para_number
 
         target_bboxes_mask = label_mask
         target_bboxes = np.zeros((self.max_num_obj, 6))
 
         for i in range(bboxes.shape[0]):
             bbox = bboxes[i]
-            semantic_class = bbox[16]
+            semantic_class = bbox[15]
             box3d_size = bbox[3:6] * 2
-            sg_para = bbox[9:16]
+            sg_para = bbox[9:15]
             sg_paras[i, :] = sg_para
             raw_sizes[i, :] = box3d_size
             roll_angle_class, roll_angle_residual = self.dataset_config.angle2class(bbox[6])
@@ -353,12 +332,12 @@ class SGDetectionDataset(Dataset):
         box_sizes_normalized = box_sizes_normalized.squeeze(0)
 
         def scale_points_sg(pred_sg, factor_sg):
-            if pred_sg.ndim == 7:                       # this number is SGDatasetConfig.sg_para_number
+            if pred_sg.ndim == 6:  # this number is SGDatasetConfig.sg_para_number
                 factor_sg = factor_sg[:, None]
             scaled_sg = pred_sg * factor_sg[:, None, :]
             return scaled_sg
 
-        mult_factor_sg = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+        mult_factor_sg = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)       # this dimension matches with SGDatasetConfig.sg_para_number
         sg_paras_normalized = scale_points_sg(
             sg_paras.astype(np.float32)[None, ...],
             factor_sg=1.0 / mult_factor_sg[None, ...],

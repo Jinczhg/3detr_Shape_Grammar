@@ -30,12 +30,24 @@ sys.path.append(BASE_DIR)
 sys.path.append(os.path.join(BASE_DIR, '../../'))
 from utils import pc_util, box_util
 
-CLASS_WHITELIST = ['bed', 'table', 'sofa', 'chair', 'bookshelf']
-class2id = {'table': 0, 'chair': 1, 'bookshelf': 2, 'bed': 3, 'sofa': 4, 'dresser': 5}
+CLASS_WHITELIST = ["table", "chair", "couch", "bookshelf", "window",  "door"]
+                   # "top",  "leg_t",
+                   # "seat", "frontleg", "rearleg", "back",
+                   # "seatBoard", "sidePiece", "cushionPiece"]  # what to detect
+class2id = {"table": 0, "chair": 1, "couch": 2, "bookshelf": 3, "window": 4, "door": 5}
+            # "top": 6, "leg_t": 7,
+            # "seat": 8, "frontleg": 9, "rearleg": 10, "back": 11,
+            # "seatBoard": 12, "sidePiece": 13, "cushionPiece": 14}
 id2class = {class2id[t]: t for t in class2id}
 
+DATA = '04_07_2024_room_non_hierarchy'
+SHAPE_GRAMMAR_DATASET_PATH = "/home/jzhang72/NetBeansProjects/sharp-kt/dataset_3detr_new_v5_room_non_hierarchy"
+train_set_size = 1600
+val_set_size = 400
+max_value = 2000
 
-class sg_object(object):
+
+class SG_Object(object):
     """ Load and parse object data """
 
     def __init__(self, root_dir, split='training'):
@@ -45,9 +57,9 @@ class sg_object(object):
         self.split_dir = os.path.join(root_dir)
 
         if split == 'training':
-            self.num_samples = 500
+            self.num_samples = train_set_size
         elif split == 'testing':
-            self.num_samples = 500
+            self.num_samples = val_set_size
         else:
             print('Unknown split: %s' % split)
             exit(-1)
@@ -69,19 +81,21 @@ class SGObject3d(object):
         data = line.split(' ')
         data[1:] = [float(x) for x in data[1:]]
         self.class_id = data[0]
-        self.centroid = np.array([data[1], data[2], data[3]])
+        # Switch Y and Z axis
+        # Flip X-right, Y-up, Z-forward (shape grammar coordinate) to X-right, Y-forward, Z-up (SUNRGBD coordinate)
+        self.centroid = np.array([data[1], data[3], data[2]])
         self.l = data[4]
-        self.w = data[5]
-        self.h = data[6]
+        self.w = data[6]  # Z (shape grammar) -> Y (SUNRGBD coordinate)
+        self.h = data[5]  # Y (shape grammar) -> Z (SUNRGBD coordinate)
         self.roll = data[7]
-        self.pitch = data[8]
-        self.yaw = data[9]
-        self.sg_para = np.array([data[10], data[11], data[12], data[13], data[14], data[15], data[16]])
+        self.pitch = -data[9]  # -yaw (shape grammar) -> pitch (SUNRGBD coordinate)
+        self.yaw = -data[8]  # -pitch (shape grammar) -> yaw (SUNRGBD coordinate)
+        self.sg_para = np.array([data[10], data[11], data[12], data[13], data[14], data[15]])
 
 
 def data_viz(data_dir, dump_dir=os.path.join(BASE_DIR, 'data_viz_dump')):
     """ Examine and visualize SUN RGB-D data. """
-    sg = sg_object(data_dir)
+    sg = SG_Object(data_dir)
     idxs = np.array(range(1, len(sg) + 1))
     np.random.seed(0)
     np.random.shuffle(idxs)
@@ -93,7 +107,6 @@ def data_viz(data_dir, dump_dir=os.path.join(BASE_DIR, 'data_viz_dump')):
 
         # Load box labels
         objects = sg.get_label_objects(data_idx)
-        print('Objects:', objects)
 
         # Dump OBJ files for the colored point cloud
         # for num_point in [10000, 20000, 40000, 80000]:
@@ -111,15 +124,16 @@ def data_viz(data_dir, dump_dir=os.path.join(BASE_DIR, 'data_viz_dump')):
             obb[0:3] = obj.centroid
             # Some conversion to map with default setting of w,l,h
             # and angle in box dumping
-            obb[3:6] = np.array([obj.l, obj.w, obj.h]) * 2
+            obb[3:6] = np.array([obj.l, obj.w, obj.h])      # the l, w, h here are only half of the bounding box size (this is the convention of
+            # the SUNRGBD and SCANNET dataset)
             obb[6:9] = np.array([obj.roll, obj.pitch, obj.yaw])
             print('Object cls, roll, pitch, yaw, l, w, h:',
-                  obj.class_id, obj.roll, obj.pitch, obj.yaw, obj.l, obj.w, obj.h)
+                  id2class[int(obj.class_id)], obj.roll, obj.pitch, obj.yaw, obj.l, obj.w, obj.h)
             oriented_boxes.append(obb)
         if len(oriented_boxes) > 0:
             oriented_boxes = np.vstack(tuple(oriented_boxes))
-            pc_util.write_oriented_bbox(oriented_boxes,
-                                        os.path.join(dump_dir, 'obbs.ply'))
+            pc_util.write_oriented_bbox_sg(oriented_boxes,
+                                           os.path.join(dump_dir, '%06d_obbs.ply' % data_idx))
         else:
             print('-' * 30)
             continue
@@ -132,7 +146,7 @@ def data_viz(data_dir, dump_dir=os.path.join(BASE_DIR, 'data_viz_dump')):
             box3d.append(corners_3d)
         pc_box3d = np.concatenate(box3d, 0)
         print(pc_box3d.shape)
-        pc_util.write_ply(pc_box3d, os.path.join(dump_dir, 'box3d_corners.ply'))
+        pc_util.write_ply(pc_box3d, os.path.join(dump_dir, '%06d_box3d_corners.ply' % data_idx))
         print('-' * 30)
         print('Point clouds and bounding boxes saved to PLY files under %s' % dump_dir)
         print('Type anything to continue to the next sample...')
@@ -164,7 +178,7 @@ def extract_sg_data(idx_filename, split, output_folder, num_point=20000,
    """
     if type_whitelist is None:
         type_whitelist = CLASS_WHITELIST
-    dataset = sg_object("/home/jzhang72/Downloads/sharp-kt/dataset", split)
+    dataset = SG_Object(SHAPE_GRAMMAR_DATASET_PATH, split)
     data_idx_list = [int(line.rstrip()) for line in open(idx_filename)]
 
     if not os.path.exists(output_folder):
@@ -183,17 +197,17 @@ def extract_sg_data(idx_filename, split, output_folder, num_point=20000,
         for obj in objects:
             if id2class[int(obj.class_id)] not in type_whitelist:
                 continue
-            obb = np.zeros(17)
+            obb = np.zeros(16)
             obb[0:3] = obj.centroid
             # Note that compared with that in data_viz, we do not time 2 to l,w.h
             # neither do we flip the heading angle
             obb[3:6] = np.array([obj.l, obj.w, obj.h])
             obb[6:9] = np.array([obj.roll, obj.pitch, obj.yaw])
-            obb[9:16] = obj.sg_para
-            obb[16] = obj.class_id
+            obb[9:15] = obj.sg_para
+            obb[15] = obj.class_id
             object_list.append(obb)
         if len(object_list) == 0:
-            obbs = np.zeros((0, 17))
+            obbs = np.zeros((0, 16))
         else:
             obbs = np.vstack(object_list)  # (K, id+center+size+rotation+sg)
 
@@ -213,23 +227,19 @@ def load_label(label_filename):
 
 def load_points(pc_filename):
     pc = np.loadtxt(pc_filename)
+    # Flip X-right, Y-up, Z-forward (shape grammar coordinate XYZ) to X-right, Y-forward, Z-up (SUNRGBD coordinate XZY)
+    pc[..., [0, 1, 2]] = pc[..., [0, 2, 1]]
+    np.random.shuffle(pc)
     return pc
 
 
 def compute_box_3d(obj):
     center = obj.centroid
-
-    # compute rotational matrix around yaw axis
-    R = np.matmul(box_util.rotz(obj.yaw), box_util.roty(obj.pitch))
-    R = np.matmul(R, box_util.rotx(obj.roll))
-    # b,a,c = dimension
-    # print R, a,b,c
-
-    # 3d bounding box dimensions
-    l = obj.l  # along heading arrow
-    w = obj.w  # perpendicular to heading arrow
+    l = obj.l
+    w = obj.w
     h = obj.h
-
+    R = np.matmul(box_util.roty(obj.pitch), box_util.rotz(obj.yaw))
+    R = np.matmul(R, box_util.rotx(obj.roll))
     # rotate and translate 3d bounding box
     x_corners = [-l, l, l, -l, -l, l, l, -l]
     y_corners = [w, w, -w, -w, w, w, -w, -w]
@@ -248,15 +258,29 @@ if __name__ == '__main__':
     parser.add_argument('--compute_median_size', action='store_true', help='Compute median 3D bounding box sizes for each class.')
     args = parser.parse_args()
 
+    os.makedirs(os.path.join(BASE_DIR, DATA), exist_ok=False)
+
     if args.viz:
-        data_viz("/home/jzhang72/Downloads/sharp-kt/dataset")
+        data_viz(SHAPE_GRAMMAR_DATASET_PATH)
         exit()
+
+    # Generate the training set of image names
+    train_set = np.random.choice(range(max_value), size=train_set_size, replace=False)
+    # Generate the val set of image names
+    remaining_values = np.setdiff1d(range(max_value), train_set_size)
+    val_set = np.random.choice(remaining_values, size=val_set_size, replace=False)
+    with open(os.path.join(BASE_DIR, 'train_data_idx.txt'), 'w') as f:
+        for num in train_set:
+            f.write(f"{num}\n")
+    with open(os.path.join(BASE_DIR, 'val_data_idx.txt'), 'w') as f:
+        for num in val_set:
+            f.write(f"{num}\n")
 
     extract_sg_data(os.path.join(BASE_DIR, 'train_data_idx.txt'),
                     split='training',
-                    output_folder=os.path.join(BASE_DIR, 'sg_pc_bbox_train'),
+                    output_folder=os.path.join(BASE_DIR, DATA + '/sg_pc_bbox_train'),
                     num_point=50000, skip_empty_scene=True)
     extract_sg_data(os.path.join(BASE_DIR, 'val_data_idx.txt'),
                     split='training',
-                    output_folder=os.path.join(BASE_DIR, 'sg_pc_bbox_val'),
+                    output_folder=os.path.join(BASE_DIR, DATA + '/sg_pc_bbox_val'),
                     num_point=50000, skip_empty_scene=True)

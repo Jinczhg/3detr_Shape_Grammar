@@ -239,6 +239,8 @@ You will need to install `pointnet2` layers by running
 ```
 cd third_party/pointnet2 && python setup.py install
 ```
+**CUDA version mismatches error can be fixed by installing the PyTorch version that matches with the detected CUDA version. It can also be overpassed by commenting the corresponding lines of code.**
+Some users have experienced issues using CUDA 11 or higher. Please try using CUDA 10.2 if you run into CUDA issues.
 
 You will also need Python dependencies (either `conda install` or `pip install`)
 
@@ -250,8 +252,6 @@ plyfile
 'networkx>=2.2,<2.3'
 scipy
 ```
-
-Some users have experienced issues using CUDA 11 or higher. Please try using CUDA 10.2 if you run into CUDA issues.
 
 **Optionally**, you can install a Cythonized implementation of gIOU for faster training.
 ```
@@ -268,6 +268,20 @@ We follow the VoteNet codebase for preprocessing our data.
 The instructions for preprocessing SUN RGB-D are [here](https://github.com/facebookresearch/votenet/tree/main/sunrgbd) and ScanNet are [here](https://github.com/facebookresearch/votenet/tree/main/scannet).
 
 You can edit the dataset paths in [`datasets/sunrgbd.py`](datasets/sunrgbd.py#L36) and [`datasets/scannet.py`](datasets/scannet.py#L23-L24) or choose to specify at runtime.
+
+### Shape grammar dataset preparation 
+```
+cd datasets/SG
+python sg_data.py
+```
+The dataset directory and target object classes can be modified at the top of the [`datasets/sg_data.py`].
+
+## Inference
+```
+python demo.py
+```
+The checkpoint directory and inference data can be modified in [`demo.py`].
+
 
 ## Testing
 
@@ -296,6 +310,12 @@ A variance of 1% AP25 across different training runs can be expected.
 
 You can quickly verify your installation by training a 3DETR model for 90 epochs on ScanNet following the file `scripts/scannet_quick.sh` and compare it to the pretrained checkpoint from the Model Zoo.
 
+For shape grammar training, you can simply run 
+```
+cd scripts
+bash ./sg_room.sh
+```
+Remember to change the `--checkpoint_dir` to your desired directory in the last line of the script.
 
 ## License
 The majority of 3DETR is licensed under the Apache 2.0 license as found in the [LICENSE](LICENSE) file, however portions of the project are available under separate license terms: licensing information for pointnet2 is available at https://github.com/erikwijmans/Pointnet2_PyTorch/blob/master/UNLICENSE

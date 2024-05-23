@@ -236,7 +236,48 @@ def write_oriented_bbox(scene_bbox, out_filename, colors=None):
     return
 
 
-def write_oriented_bbox_camera_coord(scene_bbox, out_filename):
+def write_oriented_bbox_sg(scene_bbox, out_filename, colors=None):
+
+    def angle2rotmat(roll, pitch, yaw):
+        rotmat = np.matmul(rotz(yaw), roty(pitch))
+        rotmat = np.matmul(rotmat, rotx(roll))
+        return rotmat
+
+    def convert_oriented_box_to_trimesh_fmt(box):
+        ctr = box[:3]
+        lengths = box[3:6]
+        trns = np.eye(4)
+        trns[0:3, 3] = ctr
+        trns[3, 3] = 1.0
+        trns[0:3, 0:3] = angle2rotmat(box[6], box[7], box[8])
+        box_trimesh_fmt = trimesh.creation.box(lengths, trns)
+        return box_trimesh_fmt
+
+    if colors is not None:
+        if colors.shape[0] != len(scene_bbox):
+            colors = [colors for _ in range(len(scene_bbox))]
+            colors = np.array(colors).astype(np.uint8)
+        assert colors.shape[0] == len(scene_bbox)
+        assert colors.shape[1] == 4
+
+    scene = trimesh.scene.Scene()
+    for idx, box in enumerate(scene_bbox):
+        box_tr = convert_oriented_box_to_trimesh_fmt(box)
+        if colors is not None:
+            box_tr.visual.main_color[:] = colors[idx]
+            box_tr.visual.vertex_colors[:] = colors[idx]
+            for facet in box_tr.facets:
+                box_tr.visual.face_colors[facet] = colors[idx]
+        scene.add_geometry(box_tr)
+
+    mesh_list = trimesh.util.concatenate(scene.dump())
+    # save to ply file
+    trimesh.io.export.export_mesh(mesh_list, out_filename, file_type="ply")
+
+    return
+
+
+def write_oriented_bbox_camera_coord(scene_bbox, out_filename):     # never gets used
     """Export oriented (around Y axis) scene bbox to meshes
     Args:
         scene_bbox: (N x 7 numpy array): xyz pos of center and 3 lengths (dx,dy,dz)
@@ -277,7 +318,7 @@ def write_oriented_bbox_camera_coord(scene_bbox, out_filename):
     return
 
 
-def write_lines_as_cylinders(pcl, filename, rad=0.005, res=64):
+def write_lines_as_cylinders(pcl, filename, rad=0.005, res=64):     # never gets used
     """Create lines represented as cylinders connecting pairs of 3D points
     Args:
         pcl: (N x 2 x 3 numpy array): N pairs of xyz pos

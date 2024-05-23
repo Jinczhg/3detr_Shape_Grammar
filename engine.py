@@ -67,6 +67,7 @@ def train_one_epoch(
 
     time_delta = SmoothedValue(window_size=10)
     loss_avg = SmoothedValue(window_size=10)
+    loss_sg_avg = SmoothedValue(window_size=10)
 
     model.train()
     barrier()
@@ -164,7 +165,7 @@ def evaluate(
     loss_avg = SmoothedValue(window_size=10)
     model.eval()
     barrier()
-    epoch_str = f"[{curr_epoch}/{args.max_epoch}]" if curr_epoch > 0 else ""
+    epoch_str = f"[{curr_epoch}/{args.max_epoch}]"
 
     for batch_idx, batch_data_label in enumerate(dataset_loader):
         curr_time = time.time()

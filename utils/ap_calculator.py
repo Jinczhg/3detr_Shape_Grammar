@@ -14,8 +14,8 @@ import numpy as np
 import scipy.special as scipy_special
 import torch
 
-from utils.box_util import (extract_pc_in_box3d, flip_axis_to_camera_np,
-                            get_3d_box, get_3d_box_batch)
+from utils.box_util import (extract_pc_in_box3d, flip_axis_to_camera_np)
+                            # get_3d_box, get_3d_box_batch)
 from utils.eval_det import eval_det_multiprocessing, get_iou_obb
 from utils.nms import nms_2d_faster, nms_3d_faster, nms_3d_faster_samecls
 
@@ -75,7 +75,7 @@ def parse_predictions(
             pc = batch_pc[i, :, :]  # (N,3)
             for j in range(K):
                 box3d = pred_corners_3d_upright_camera[i, j, :, :]  # (8,3)
-                # box3d = flip_axis_to_depth(box3d)     # SG dataset doesn't need this step. Original data is already in the cam coordinate
+                box3d = flip_axis_to_depth(box3d)
                 pc_in_box, inds = extract_pc_in_box3d(pc, box3d)
                 if len(pc_in_box) < 5:
                     nonempty_box_mask[i, j] = 0
@@ -240,9 +240,9 @@ def parse_predictions(
 
 def parse_predictions_eval(
     predicted_boxes, roll_angle_continuous, pitch_angle_continuous, yaw_angle_continuous, sem_cls_probs, objectness_probs, point_cloud,
-        config_dict
+        center_unnormalized, size_unnormalized, sg_para, config_dict
 ):
-    # Customized prediction function for shape grammar estimation
+    # Customized prediction function for inference
     """Parse predictions to OBB parameters and suppress overlapping boxes
 
     Args:
@@ -267,6 +267,10 @@ def parse_predictions_eval(
     pred_sem_cls_prob = np.max(sem_cls_probs, -1)  # B,num_proposal
     pred_sem_cls = np.argmax(sem_cls_probs, -1)
     obj_prob = objectness_probs.detach().cpu().numpy()
+    center_unnormalized = center_unnormalized.detach().cpu().numpy()
+    size_unnormalized = size_unnormalized.detach().cpu().numpy()
+    sg_para = sg_para.detach().cpu().numpy()
+
 
     pred_corners_3d_upright_camera = predicted_boxes.detach().cpu().numpy()
 
@@ -282,7 +286,7 @@ def parse_predictions_eval(
             pc = batch_pc[i, :, :]  # (N,3)
             for j in range(K):
                 box3d = pred_corners_3d_upright_camera[i, j, :, :]  # (8,3)
-                # box3d = flip_axis_to_depth(box3d)     # SG dataset doesn't need this step. Original data is already in the cam coordinate
+                box3d = flip_axis_to_depth(box3d)
                 pc_in_box, inds = extract_pc_in_box3d(pc, box3d)
                 if len(pc_in_box) < 5:
                     nonempty_box_mask[i, j] = 0
@@ -382,9 +386,7 @@ def parse_predictions_eval(
                     pred_corners_3d_upright_camera[i, j, :, 2]
                 )
                 boxes_3d_with_prob[j, 6] = obj_prob[i, j]
-                boxes_3d_with_prob[j, 7] = pred_sem_cls[
-                    i, j
-                ]  # only suppress if the two boxes are of the same class!!
+                boxes_3d_with_prob[j, 7] = pred_sem_cls[i, j]  # only suppress if the two boxes are of the same class!!
             nonempty_box_inds = np.where(nonempty_box_mask[i, :] == 1)[0]
             assert len(nonempty_box_inds) > 0
             pick = nms_3d_faster_samecls(
@@ -411,6 +413,9 @@ def parse_predictions_eval(
                         pitch_angle_continuous[i, j],
                         yaw_angle_continuous[i, j],
                         pred_corners_3d_upright_camera[i, j],
+                        center_unnormalized[i, j],
+                        size_unnormalized[i, j],
+                        sg_para[i, j],
                         sem_cls_probs[i, j, ii] * obj_prob[i, j],
                     )
                     for j in range(pred_corners_3d_upright_camera.shape[1])
@@ -427,7 +432,10 @@ def parse_predictions_eval(
                         pitch_angle_continuous[i, j],
                         yaw_angle_continuous[i, j],
                         pred_corners_3d_upright_camera[i, j],
-                        sem_cls_probs[i, j, pred_sem_cls[i, j].item()],
+                        center_unnormalized[i, j],
+                        size_unnormalized[i, j],
+                        sg_para[i, j],
+                        sem_cls_probs[i, j],
                     )
                     for j in range(pred_corners_3d_upright_camera.shape[1])
                     if pred_mask[i, j] == 1
@@ -443,6 +451,9 @@ def parse_predictions_eval(
                         pitch_angle_continuous[i, j],
                         yaw_angle_continuous[i, j],
                         pred_corners_3d_upright_camera[i, j],
+                        center_unnormalized[i, j],
+                        size_unnormalized[i, j],
+                        sg_para[i, j],
                         obj_prob[i, j],
                     )
                     for j in range(pred_corners_3d_upright_camera.shape[1])
